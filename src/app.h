@@ -24,6 +24,10 @@ extern const char* const kGamesJsonUrl;
 extern const char* const kPackageDirName;
 extern const char* const kCachedGamesJson;
 
+// When it is the only argument, run_app prints the version line and exits 0
+// before any network or folder work (the exe's own ctest checks use it).
+extern const char* const kVersionSwitch;
+
 // Everything the flow touches outside its own memory, except the game folder
 // itself, which the finder and the package update read and write directly.
 class AppIo {

@@ -15,14 +15,13 @@ add_test(NAME test_selfupdate COMMAND test_selfupdate)
 
 # The exe itself (Done bullet 1 of #2), as two tests: with PASS_REGULAR_EXPRESSION
 # set ctest ignores the exit code, so the output and the exit code cannot share one.
-# ffb_coop_no_game_exits_1: build\Release holds no game, so since #6 the exe ends on
-# an error screen -- "not installed yet" while games.json is unreachable, the none
-# screen once it is published -- and both exit 1 (docs/SPEC.md, Error screens).
-# ctest pipes the output, so the key wait is skipped (app_win.cpp, wait_key).
-add_test(NAME ffb_coop_no_game_exits_1 COMMAND ffb_coop)
-set_tests_properties(ffb_coop_no_game_exits_1 PROPERTIES WILL_FAIL TRUE TIMEOUT 60)
+# Both run `FFB Co-op.exe --version`, which stops before any network or folder work
+# (#6): the suite never depends on the network or on what coopmods.com serves. The
+# flow's screens and exit codes are test_app's, over fakes.
+# ffb_coop_exits_0: runs and exits 0 (no pass regex, so the exit code decides).
+add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop --version)
 # ffb_coop_version_line: prints the version line first.
-add_test(NAME ffb_coop_version_line COMMAND ffb_coop)
+add_test(NAME ffb_coop_version_line COMMAND ffb_coop --version)
 set_tests_properties(ffb_coop_version_line PROPERTIES
     PASS_REGULAR_EXPRESSION "^FFB Co-op [0-9]+\\.[0-9]+\\.[0-9]+")
 

@@ -32,6 +32,7 @@ namespace ffb {
 const char* const kGamesJsonUrl    = "https://coopmods.com/games.json";
 const char* const kPackageDirName  = "FFB Co-op";
 const char* const kCachedGamesJson = "games.json";
+const char* const kVersionSwitch   = "--version";
 
 namespace {
 
@@ -151,6 +152,9 @@ std::string unreadable(const std::string& reason) {
 
 int run_app(const AppInput& in, AppIo& io) {
     io.out(ffb_version_line());
+    // `FFB Co-op.exe --version`, as the only argument: the version line and
+    // nothing else -- no network, no folder. Anything more is passed on.
+    if (in.arg_tail.substr(0, in.arg_tail.find_last_not_of(" \t") + 1) == kVersionSwitch) return 0;
     self_update_sweep(io.self_update_io());
 
     // --- 1. games.json ---

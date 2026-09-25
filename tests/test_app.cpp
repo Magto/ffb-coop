@@ -412,6 +412,31 @@ void test_start_fails() {
     CHECK(io.keys == 1);
 }
 
+void test_version_switch() {
+    std::printf("--version alone: the version line, exit 0, no network, nothing written\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    FakeIo io;
+    serve_all(io);
+    CHECK(ffb::run_app(input(t, "--version"), io) == 0);
+    CHECK(io.outs.size() == 1 && io.outs[0].rfind("FFB Co-op ", 0) == 0);
+    CHECK(io.net_.asked.empty());
+    CHECK(io.starts.empty());
+    CHECK(io.keys == 0);
+    CHECK(!fs::exists(t.pkg()));
+
+    FakeIo io3;
+    CHECK(ffb::run_app(input(t, "--version  "), io3) == 0);   // trailing blanks as typed
+    CHECK(io3.net_.asked.empty());
+
+    std::printf("--version with more arguments: not the switch, passed on like any other\n");
+    FakeIo io2;
+    serve_all(io2);
+    CHECK(ffb::run_app(input(t, "--version -x"), io2) == 0);
+    CHECK(io2.starts.size() == 1 &&
+          io2.starts[0].cmdline == q(t.pkg() / kLoader) + " " + q(t.path / "Mewgenics.exe") + " --version -x");
+}
+
 }  // namespace
 
 int main() {
@@ -431,5 +456,6 @@ int main() {
     test_self_update_failed();
     test_self_update_restart();
     test_start_fails();
+    test_version_switch();
     return ffb_test_result();
 }
