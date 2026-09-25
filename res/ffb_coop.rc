@@ -1,0 +1,40 @@
+// Version resource and icon for FFB Co-op.exe (Explorer: Properties -> Details).
+#include <winver.h>
+#include "ffb_version.h"
+
+// Explorer takes the first icon group in the resource table as the exe's icon,
+// so it keeps the lowest id. The navy bunnycorn, copied from mewgenics-coop
+// res/Mewcoop.ico at commit 0246ab7.
+1 ICON "ffb_coop.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    FFB_VERSION_MAJOR,FFB_VERSION_MINOR,FFB_VERSION_PATCH,0
+ PRODUCTVERSION FFB_VERSION_MAJOR,FFB_VERSION_MINOR,FFB_VERSION_PATCH,0
+ FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+ FILEFLAGS      VS_FF_DEBUG
+#else
+ FILEFLAGS      0x0L
+#endif
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"          // US English, Unicode
+        BEGIN
+            VALUE "CompanyName",      FFB_PRODUCT_NAME
+            VALUE "FileDescription",  FFB_PRODUCT_NAME
+            VALUE "FileVersion",      FFB_VERSION_STR
+            VALUE "InternalName",     "ffb_coop"
+            VALUE "OriginalFilename", "FFB Co-op.exe"
+            VALUE "ProductName",      FFB_PRODUCT_NAME
+            VALUE "ProductVersion",   FFB_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

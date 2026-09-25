@@ -1,0 +1,37 @@
+name: doc-rules
+
+# The one mechanical-check name (DOC_RULES_CHECK in docs/agents/LEAD-CONFIG.md): the prose-doc rules,
+# the source rules and the issue-form check, on every pull request and every push to main.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  doc-rules:
+    name: doc-rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Make origin/main available for the changed-file scope
+        run: git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main || true
+      - name: tools/doc_rules.sh
+        run: bash tools/doc_rules.sh
+      - name: tools/scan_rules.sh
+        run: bash tools/scan_rules.sh
+        env:
+          # The EXERCISED closed-issue rule asks GitHub for an issue's state with gh (agent-workflow#2).
+          GH_TOKEN: ${{ github.token }}
+      - name: tools/issue_forms_check.py
+        # A broken issue form is dropped by GitHub without a word. The check needs PyYAML: install it
+        # when the runner's system Python lacks it, so the check never passes by skipping.
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
+          python3 tools/issue_forms_check.py
