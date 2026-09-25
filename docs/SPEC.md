@@ -160,7 +160,9 @@ A manifest that breaks any rule is rejected whole, and nothing is downloaded fro
    shows the error and waits for a key **(spec default)**.
 
 A good games.json is also saved as `FFB Co-op\games.json` once the game is found, so a later
-offline start knows which exe names to look for **(spec default)**.
+offline start knows which exe names to look for **(spec default)**. After a good update the game's
+manifest is kept the same way, as `FFB Co-op\manifest.json`, so an offline start knows every
+required file of the package (#6).
 
 ## Network file-name rule
 
