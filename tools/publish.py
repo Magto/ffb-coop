@@ -69,7 +69,8 @@ def launcher_block(data):
 VERSION_RE = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 HEX64_RE = re.compile(r"[0-9a-fA-F]{64}")
 ID_RE = re.compile(r"[a-z0-9-]{1,32}")
-RESERVED = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+RESERVED = ({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"}
+            | {f"{d}{i}" for d in ("COM", "LPT") for i in "123456789\u00b9\u00b2\u00b3"})   # ¹ ² ³
 
 
 def version_key(v):
@@ -82,13 +83,18 @@ def plain_name_problem(name):
         return "empty or not a string"
     if len(name) > 255:
         return "longer than 255 characters"
-    if any(c in name for c in "/\\:") or any(ord(c) < 0x20 for c in name):
-        return "contains / \\ : or a control character"
+    if any(c in name for c in "/\\:"):
+        return "contains / \\ or :"
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in name):
+        return "contains a control character"
+    if any(c in name for c in '<>"|?*'):
+        return "contains a character Windows does not allow (< > \" | ? *)"
     if ".." in name or name == ".":
         return "is . or contains .."
     if name != name.strip(" ") or name.endswith("."):
         return "leading/trailing space or trailing ."
-    if name.split(".")[0].upper() in RESERVED:
+    # Windows drops trailing spaces from the part before the first dot: "nul .txt" is the device too.
+    if name.split(".")[0].rstrip(" ").upper() in RESERVED:
         return "a Windows reserved device name"
     return None
 

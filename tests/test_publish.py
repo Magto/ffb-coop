@@ -95,6 +95,20 @@ class PlainName(unittest.TestCase):
                     "a.", "NUL", "com1.exe", "LPT9.txt", "a\x01.exe", "x" * 256):
             self.assertIsNotNone(publish.plain_name_problem(bad), repr(bad))
 
+    def test_rule_after_16(self):
+        # docs/SPEC.md "Network file-name rule" as PR #16 wrote it, the rule src/plain_name.cpp enforces.
+        for ok in ("com10.exe", "COM0.exe", "console.exe", "nul_.exe", "clock.exe", "x" * 255,
+                   "é" * 255):
+            self.assertIsNone(publish.plain_name_problem(ok), repr(ok))
+        for bad in ("a<b.exe", "a>b.exe", 'a"b.exe', "a|b.exe", "a?.exe", "a*.exe",   # < > " | ? *
+                    "a\x00.exe", "a\x1f.exe", "a\x7f.exe",                             # 0x00-0x1F, 0x7F
+                    "CONIN$", "conin$.exe", "CONOUT$.exe", "Clock$.txt",               # the $ devices
+                    "COM¹.exe", "com²", "COM³.txt",                     # superscript 1 2 3
+                    "LPT¹.exe", "lpt².exe", "LPT³",
+                    "nul .txt", "CON  .exe", "com1 .exe", "clock$ .exe",               # stem's trailing spaces
+                    "é" * 256):
+            self.assertIsNotNone(publish.plain_name_problem(bad), repr(bad))
+
 
 class AgainstLive(unittest.TestCase):
     def doc(self, ver, data):
