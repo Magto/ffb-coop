@@ -56,7 +56,8 @@ struct FakeSelfIo : ffb::SelfUpdateIo {
         return true;
     }
     bool move_replace(const std::wstring&, const std::wstring&) override { return true; }
-    void remove(const std::wstring&) override {}
+    std::vector<std::wstring> removed;
+    void remove(const std::wstring& p) override { removed.push_back(p); }
     bool restart(const std::wstring&) override { ++restarts; return true; }
     void note(const std::string&) override {}
     void warn(const std::string& line) override { warns.push_back(line); }
@@ -64,7 +65,10 @@ struct FakeSelfIo : ffb::SelfUpdateIo {
 
 struct Start { std::string exe, cmdline, workdir; };
 
+int g_bad_waits = 0;   // summed over every FakeIo, checked once at the end
+
 struct FakeIo : ffb::AppIo {
+    ~FakeIo() override { g_bad_waits += bad_waits; }
     FakeNet net_;
     FakeSelfIo self_;
     std::vector<Start> starts;
@@ -80,7 +84,13 @@ struct FakeIo : ffb::AppIo {
         if (!start_ok) *why = "error 2";
         return start_ok;
     }
-    void wait_key() override { ++keys; }
+    // Every key wait must come after "Press any key to exit." is on the screen:
+    // a wait with any other last line counts as a bad wait.
+    int bad_waits = 0;
+    void wait_key() override {
+        ++keys;
+        if (errs.empty() || errs.back() != "Press any key to exit.") ++bad_waits;
+    }
     void out(const std::string& l) override { outs.push_back(l); }
     void err(const std::string& l) override { errs.push_back(l); }
     std::FILE* package_log() override { return nullptr; }
@@ -306,6 +316,27 @@ void test_offline_file_missing() {
     CHECK(io.starts.empty());
 }
 
+void test_offline_two_found() {
+    std::printf("server unreachable, games.json kept, two game exes: the two-games screen\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    write(t.path / "Other.exe", "game");
+    install(t);
+    FakeIo io;
+    CHECK(ffb::run_app(input(t), io) == 1);
+    CHECK(has(io.errs, "Found more than one FFB modded game in " + t.str() + ": Mewgenics.exe, Other.exe"));
+    CHECK(io.keys == 1);
+    CHECK(io.starts.empty());
+}
+
+void test_sweep() {
+    std::printf("every start sweeps the .old.exe a previous self-update left behind\n");
+    TempFolder t;
+    FakeIo io;
+    ffb::run_app(input(t), io);
+    CHECK(!io.self_.removed.empty() && io.self_.removed.front() == L"C:\\Games\\FFB Co-op.old.exe");
+}
+
 void test_offline_empty_folder() {
     std::printf("server unreachable, games.json kept, no game exe in the folder: the none screen\n");
     TempFolder t;
@@ -519,6 +550,8 @@ int main() {
     test_offline_not_installed();
     test_offline_file_missing();
     test_offline_empty_folder();
+    test_offline_two_found();
+    test_sweep();
     test_invalid_games_json();
     test_manifest_unreachable_installed();
     test_invalid_manifest();
@@ -528,5 +561,7 @@ int main() {
     test_self_update_restart();
     test_start_fails();
     test_version_switch();
+    std::printf("every key wait came after \"Press any key to exit.\"\n");
+    CHECK(g_bad_waits == 0);
     return ffb_test_result();
 }
