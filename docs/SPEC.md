@@ -164,11 +164,14 @@ Every name that arrives over the network and becomes a file name — `games[].ex
 `games[].launcher`, `files[].name` — must be a **plain file name**:
 
 - not empty, and at most 255 characters;
-- no `/`, `\` or `:`, and no control character (below U+0020);
+- no `/`, `\` or `:`, none of `<` `>` `"` `|` `?` `*`, and no control character (U+0000–U+001F
+  or U+007F);
 - not `.` or `..`, and no `..` anywhere in it;
 - no leading or trailing space and no trailing `.` (Windows strips them silently);
-- not a Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`),
-  with or without an extension.
+- not a Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `CLOCK$`,
+  `COM1`–`COM9`, `LPT1`–`LPT9`, and `COM¹`–`COM³`, `LPT¹`–`LPT³` with superscript digits), in
+  any case, with or without an extension, and with or without spaces before the extension
+  (`nul .txt` is the device too).
 
 A name that breaks the rule makes the file that carries it invalid (games.json or the manifest),
 and the launcher says which name it rejected. Downloaded files are only ever written inside the

@@ -337,6 +337,19 @@ static void test_plain_file_name() {
     // Windows drops trailing spaces from the part before the first dot, so these open the device.
     for (const char* dev : {"nul .exe", "CON .txt", "com1  .dll", "LPT9 .a.b"})
         CHECK(!ffb::is_plain_file_name(dev));
+    // The console and clock devices, and COM/LPT with a superscript 1-3 (UTF-8 C2 B9, C2 B2, C2 B3).
+    for (const char* dev : {"CONIN$", "conin$.exe", "CONOUT$", "ConOut$.txt", "CLOCK$", "clock$ .dll",
+                            "COM\xc2\xb9", "com\xc2\xb2.exe", "COM\xc2\xb3.dll", "LPT\xc2\xb9",
+                            "lpt\xc2\xb2.txt", "LPT\xc2\xb3 .a"})
+        CHECK(!ffb::is_plain_file_name(dev));
+    // Near misses stay plain: no $, another superscript, a superscript not after COM/LPT.
+    for (const char* ok : {"CONIN.exe", "CLOCK.exe", "COM\xc2\xb9x.exe", "COM\xe2\x81\xb4.exe",
+                           "AUX\xc2\xb9.exe", "a\xc2\xb9.exe"})
+        CHECK(ffb::is_plain_file_name(ok));
+    // Characters Windows does not allow in a file name, and DEL.
+    for (const char* bad : {"a<b.exe", "a>b.exe", "a\"b.exe", "a|b.exe", "a?.exe", "a*.exe", "a\x7f.exe"})
+        CHECK(!ffb::is_plain_file_name(bad));
+    CHECK(!ffb::is_plain_file_name(std::string("a\0b.exe", 7)));
 
     std::string why;
     CHECK(!ffb::is_plain_file_name("a/b", &why) && why == "contains /");

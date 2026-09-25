@@ -1,7 +1,8 @@
 // finder.h -- which game is this folder? (docs/SPEC.md, "The flow", step 3.)
 //
 // Looks in one folder -- the folder itself, no subfolders -- for the exe of
-// every games.json entry, without regard to case. The caller turns the three
+// every games.json entry, without regard to ASCII case (ascii_lower in
+// plain_name.h; every supported exe name is ASCII). The caller turns the three
 // outcomes into the flow or one of the error screens (#6).
 #pragma once
 #include "games.h"

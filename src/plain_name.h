@@ -17,6 +17,8 @@ bool is_plain_file_name(const std::string& name, std::string* why = nullptr);
 bool ends_with_exe(const std::string& name);
 
 // ASCII lower-case copy; the comparisons the spec calls "without regard to case".
+// ASCII only, on purpose: NTFS also folds non-ASCII letters (Ü/ü), but every exe name
+// a supported game uses is ASCII, so exe matching and uniqueness fold A-Z alone.
 std::string ascii_lower(const std::string& s);
 
 }  // namespace ffb
