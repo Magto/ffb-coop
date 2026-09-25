@@ -13,7 +13,7 @@ target_include_directories(test_selfupdate PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(test_selfupdate PRIVATE /W3)
 add_test(NAME test_selfupdate COMMAND test_selfupdate)
 
-# The exe itself (Done bullet 1 of #2), as two tests: with PASS_REGULAR_EXPRESSION
+# The exe itself (Done bullet 1 of #2), as separate tests: with PASS_REGULAR_EXPRESSION
 # set ctest ignores the exit code, so the output and the exit code cannot share one.
 # Both run `FFB Co-op.exe --version`, which stops before any network or folder work
 # (#6): the suite never depends on the network or on what coopmods.com serves. The
@@ -24,6 +24,16 @@ add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop --version)
 add_test(NAME ffb_coop_version_line COMMAND ffb_coop --version)
 set_tests_properties(ffb_coop_version_line PROPERTIES
     PASS_REGULAR_EXPRESSION "^FFB Co-op [0-9]+\\.[0-9]+\\.[0-9]+")
+# ffb_coop_offline_not_installed: the whole exe with no argument, in build\Release
+# (no game, nothing installed). FFB_COOP_OFFLINE=1 makes every fetch fail
+# (src/app_win.cpp), so this takes the offline path whatever coopmods.com serves.
+# ctest pipes the output, so the key wait is skipped (WindowsAppIo::wait_key).
+add_test(NAME ffb_coop_offline_not_installed COMMAND ffb_coop)
+set_tests_properties(ffb_coop_offline_not_installed PROPERTIES
+    PASS_REGULAR_EXPRESSION "Could not reach coopmods.com, and FFB Co-op is not installed in ")
+# Every test that runs the exe: never the live server, and never a hang.
+set_tests_properties(ffb_coop_exits_0 ffb_coop_version_line ffb_coop_offline_not_installed
+    PROPERTIES ENVIRONMENT "FFB_COOP_OFFLINE=1" TIMEOUT 30)
 
 # games.json parser and the network file-name rule (#3). third_party/json.hpp is
 # nlohmann/json 3.12.0, the copy mewgenics-coop's loader uses.
