@@ -224,7 +224,9 @@ PackageResult update_package(const std::string& package_dir, const std::string& 
         res.outcome = PackageOutcome::Invalid;
         return res;
     }
-    res.version = m.version;
+    res.version       = m.version;
+    res.manifest_text = body;
+    res.manifest      = m;
     if (!required_launcher.empty()) {
         bool found = false;
         for (const auto& f : m.files)

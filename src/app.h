@@ -20,9 +20,12 @@ namespace ffb {
 extern const char* const kGamesJsonUrl;
 
 // The package folder's name inside the game folder, and the games.json kept in
-// it for offline starts (docs/SPEC.md, accepted default 3).
+// it for offline starts (docs/SPEC.md, accepted default 3). The manifest of the
+// last good update is kept beside it, so an offline start knows every required
+// file of the package.
 extern const char* const kPackageDirName;
 extern const char* const kCachedGamesJson;
+extern const char* const kCachedManifest;
 
 // When it is the only argument, run_app prints the version line and exits 0
 // before any network or folder work (the exe's own ctest checks use it).

@@ -32,6 +32,7 @@ namespace ffb {
 const char* const kGamesJsonUrl    = "https://coopmods.com/games.json";
 const char* const kPackageDirName  = "FFB Co-op";
 const char* const kCachedGamesJson = "games.json";
+const char* const kCachedManifest  = "manifest.json";
 const char* const kVersionSwitch   = "--version";
 
 namespace {
@@ -110,19 +111,34 @@ int start_launcher(const AppInput& in, AppIo& io, const GameEntry& game) {
     return 0;
 }
 
-// The package launcher is the file the start needs; without the manifest (it
-// is not kept) it is the one required file an offline start can check. The
-// launcher checks its own files when it starts.
-bool package_installed(const AppInput& in, const GameEntry& game) {
+// Installed means every required file of the package is in the package folder
+// (docs/SPEC.md, Offline), by `fresh` -- the manifest just fetched -- or else by
+// the manifest kept from the last good update. No manifest, no install. The
+// package launcher is checked too, whatever the manifest says.
+bool package_installed(const AppInput& in, const GameEntry& game, const Manifest* fresh) {
+    Manifest kept;
+    if (!fresh) {
+        std::string text, why;
+        if (!read_text(join_path(package_dir(in), kCachedManifest), &text) ||
+            !parse_manifest(text, &kept, &why))
+            return false;
+        fresh = &kept;
+    }
     std::error_code ec;
-    return fs::is_regular_file(fs::u8path(join_path(package_dir(in), game.launcher)), ec);
+    auto present = [&](const std::string& name) {
+        return fs::is_regular_file(fs::u8path(join_path(package_dir(in), name)), ec);
+    };
+    if (!present(game.launcher)) return false;
+    for (const auto& f : fresh->files)
+        if (f.required && !present(f.name)) return false;
+    return true;
 }
 
 // Offline, for a game already found: the installed package with one warning
 // line, or the not-installed screen.
 int offline_start_game(const AppInput& in, AppIo& io, const std::string& prefix,
-                       const GameEntry& game) {
-    if (!package_installed(in, game)) return not_installed_screen(in, io, prefix);
+                       const GameEntry& game, const Manifest* fresh = nullptr) {
+    if (!package_installed(in, game, fresh)) return not_installed_screen(in, io, prefix);
     io.err(prefix + " -- starting the installed version.");
     return start_launcher(in, io, game);
 }
@@ -189,11 +205,20 @@ int run_app(const AppInput& in, AppIo& io) {
     const PackageResult pkg = update_package(dir, game.manifest, game.launcher, io.net(),
                                              io.package_log());
     switch (pkg.outcome) {
-    case PackageOutcome::Current:     break;
+    case PackageOutcome::Current:
+        // Kept for offline starts: the list of required files (accepted default 3
+        // keeps games.json the same way).
+        if (!write_text(join_path(dir, kCachedManifest), pkg.manifest_text))
+            io.err("Could not save " + join_path(dir, kCachedManifest) +
+                   " -- an offline start will not find the package.");
+        break;
+    // Unreachable or Invalid: the manifest kept from the last good update decides.
     case PackageOutcome::Unreachable: return offline_start_game(in, io, kUnreachable, game);
     case PackageOutcome::Invalid:     return offline_start_game(in, io, unreadable(pkg.reason), game);
+    // Failed: the manifest just fetched is valid and names every required file.
     case PackageOutcome::Failed:
-        return offline_start_game(in, io, "Could not update FFB Co-op (" + pkg.reason + ")", game);
+        return offline_start_game(in, io, "Could not update FFB Co-op (" + pkg.reason + ")", game,
+                                  &pkg.manifest);
     }
 
     // --- 5. start ---

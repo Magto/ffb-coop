@@ -154,10 +154,13 @@ ffb::AppInput input(const TempFolder& t, const std::string& tail = "") {
     return in;
 }
 
-// What an earlier online start leaves behind: games.json kept and the launcher installed.
-void install(const TempFolder& t, bool with_launcher = true) {
+// What an earlier good online start leaves behind: games.json and the manifest
+// kept, and the package's required files in place (both, or all but `missing`).
+void install(const TempFolder& t, const std::string& missing = "") {
     write(t.pkg() / "games.json", games_json());
-    if (with_launcher) write(t.pkg() / kLoader, kLoaderBytes);
+    write(t.pkg() / "manifest.json", manifest());
+    if (missing != kLoader) write(t.pkg() / kLoader, kLoaderBytes);
+    if (missing != kDll) write(t.pkg() / kDll, kDllBytes);
 }
 
 std::string q(const fs::path& p) { return "\"" + p.u8string() + "\""; }
@@ -179,6 +182,7 @@ void test_happy_path() {
     CHECK(read(t.pkg() / kLoader) == kLoaderBytes);
     CHECK(read(t.pkg() / kDll) == kDllBytes);
     CHECK(read(t.pkg() / "games.json") == games_json());   // kept for offline starts
+    CHECK(read(t.pkg() / "manifest.json") == manifest());   // and the required-file list
     CHECK(io.starts.size() == 1);
     if (io.starts.size() == 1) {
         CHECK(io.starts[0].exe == (t.pkg() / kLoader).u8string());
@@ -278,15 +282,27 @@ void test_offline_not_installed() {
     CHECK(io.starts.empty());
 }
 
-void test_offline_launcher_missing() {
-    std::printf("server unreachable, games.json kept but the launcher gone: not installed\n");
+void test_offline_file_missing() {
+    const std::string not_installed = "Could not reach coopmods.com, and FFB Co-op is not installed";
+    for (const std::string& gone : {kLoader, kDll}) {
+        std::printf("server unreachable, a required file (%s) gone: not installed\n", gone.c_str());
+        TempFolder t;
+        write(t.path / "Mewgenics.exe", "game");
+        install(t, gone);
+        FakeIo io;
+        CHECK(ffb::run_app(input(t), io) == 1);
+        CHECK(io.errs.size() == 2 && io.errs[0].rfind(not_installed, 0) == 0);
+        CHECK(io.keys == 1);
+        CHECK(io.starts.empty());
+    }
+    std::printf("server unreachable, every file there but no manifest kept: not installed\n");
     TempFolder t;
     write(t.path / "Mewgenics.exe", "game");
-    install(t, false);
+    install(t);
+    fs::remove(t.pkg() / "manifest.json");
     FakeIo io;
     CHECK(ffb::run_app(input(t), io) == 1);
-    CHECK(io.errs.size() == 2 && io.errs[0].rfind("Could not reach coopmods.com, and FFB Co-op is not installed", 0) == 0);
-    CHECK(io.keys == 1);
+    CHECK(io.errs.size() == 2 && io.errs[0].rfind(not_installed, 0) == 0);
     CHECK(io.starts.empty());
 }
 
@@ -332,7 +348,7 @@ void test_manifest_unreachable_installed() {
     std::printf("games.json fine, manifest unreachable, package installed: warning, then start\n");
     TempFolder t;
     write(t.path / "Mewgenics.exe", "game");
-    write(t.pkg() / kLoader, kLoaderBytes);
+    install(t);
     FakeIo io;
     io.net_.pages[ffb::kGamesJsonUrl] = {200, games_json()};
     CHECK(ffb::run_app(input(t), io) == 0);
@@ -353,6 +369,17 @@ void test_download_failed_not_installed() {
     CHECK(io.keys == 1);
     CHECK(io.starts.empty());
     CHECK(!fs::exists(t.pkg() / kLoader));   // nothing replaced
+
+    std::printf("a download fails with only the launcher there: the fetched manifest wants %s too\n", kDll.c_str());
+    TempFolder t2;
+    write(t2.path / "Mewgenics.exe", "game");
+    write(t2.pkg() / kLoader, "old loader");
+    FakeIo io2;
+    serve_all(io2);
+    io2.net_.pages[kBase + kDll] = {200, "tampered!"};
+    CHECK(ffb::run_app(input(t2), io2) == 1);
+    CHECK(io2.errs.size() == 2 && io2.errs[0].find(", and FFB Co-op is not installed in ") != std::string::npos);
+    CHECK(io2.starts.empty());
 }
 
 void test_download_failed_installed() {
@@ -360,6 +387,7 @@ void test_download_failed_installed() {
     TempFolder t;
     write(t.path / "Mewgenics.exe", "game");
     write(t.pkg() / kLoader, "old loader");
+    write(t.pkg() / kDll, "old dll");   // no manifest kept: the fetched one decides
     FakeIo io;
     serve_all(io);
     io.net_.pages[kBase + kDll] = {200, "tampered!"};
@@ -447,7 +475,7 @@ int main() {
     test_two_found();
     test_offline_installed();
     test_offline_not_installed();
-    test_offline_launcher_missing();
+    test_offline_file_missing();
     test_offline_empty_folder();
     test_invalid_games_json();
     test_manifest_unreachable_installed();
