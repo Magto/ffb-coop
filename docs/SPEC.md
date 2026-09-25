@@ -4,7 +4,8 @@ What `FFB Co-op.exe` does, the data it reads, and the decisions Martin took abou
 the agreed design of 2026-09-25 (Martin's brief plus his picks in the lead pane that morning); the
 design is agreed, and this file records it rather than reopening it. Where the brief is silent and
 this spec had to pick a behaviour, the pick is marked **(spec default)** and listed under
-[Defaults this spec chose](#defaults-this-spec-chose) so Martin can overrule any one of them.
+[Defaults this spec chose](#defaults-this-spec-chose); Martin reviewed that list on 2026-09-25,
+accepted six and overruled one.
 
 ## Why
 
@@ -137,11 +138,16 @@ A manifest that breaks any rule is rejected whole, and nothing is downloaded fro
 1. For each file in the manifest, hash the copy in the package folder if there is one. A file whose
    sha256 already matches is left alone **(spec default: every file is compared by hash; the
    manifest's `version` decides nothing)**.
-2. A file marked `"required": false` is updated when a copy is already there and never fetched into
-   a package folder that lacks it — the same rule the Mewgenics loader applies to
-   `mewcoop_ui.swf`, where not having it is the player's choice **(spec default)**.
+2. A file marked `"required": false` is kept present and current exactly like a required one: it
+   is fetched on a fresh install too (Martin's pick: "Always fetch"). Only a failure is treated
+   differently — see step 3. This **differs on purpose** from the Mewgenics loader's own rule, which
+   never fetches `mewcoop_ui.swf` into an install that lacks it: every player who switches to
+   FFB Co-op.exe starts with an empty package folder ("Start fresh"), so under the loader's rule
+   nobody installing through FFB Co-op.exe would ever get the optional files.
 3. Every file that differs is downloaded to `<name>.new` in the package folder, checking size and
-   sha256 as it arrives. A file that fails either check is deleted, and **nothing** is replaced.
+   sha256 as it arrives. A required file that fails either check is deleted, and **nothing** is
+   replaced. An optional file that fails is deleted and dropped from this run with a one-line
+   warning naming it; the required files are still replaced, and the start is not blocked.
 4. Only once every file has arrived and checked are the `.new` files moved over the old ones
    (replace in place). A file that cannot be replaced — usually because the game is running and
    holds it open — leaves the old file where it was and says which file and why.
@@ -287,12 +293,16 @@ Martin's picks, 2026-09-25, in the lead pane, quoted exactly:
 ## Defaults this spec chose
 
 The brief does not settle these; the spec picked the behaviour marked **(spec default)** above.
-Each is Martin's to overrule, and each is cheap to change before its issue lands.
+Martin reviewed the list on 2026-09-25 (recorded on PR #13): he accepted six — "Accept all six
+(Recommended)" — and overruled number 5 with "Always fetch".
 
-1. A self-update that fails its checks is not fatal: the running exe carries on with a warning.
-2. An invalid games.json or manifest is handled like an unreachable server, with its own message.
-3. A good games.json is kept as `FFB Co-op\games.json`, so an offline start can find the game.
-4. Package files are compared by sha256 one by one; the manifest's `version` decides nothing.
-5. A `"required": false` file is only updated, never fetched fresh (the Mewgenics loader's rule).
-6. A failed download or replace falls back to the offline behaviour.
-7. The package launcher starts with the package folder as its working directory.
+1. A self-update that fails its checks is not fatal: the running exe carries on with a warning. **Accepted.**
+2. An invalid games.json or manifest is handled like an unreachable server, with its own message. **Accepted.**
+3. A good games.json is kept as `FFB Co-op\games.json`, so an offline start can find the game. **Accepted.**
+4. Package files are compared by sha256 one by one; the manifest's `version` decides nothing. **Accepted.**
+5. ~~A `"required": false` file is only updated, never fetched fresh (the Mewgenics loader's rule).~~
+   **Overruled — Martin's decision:** "Always fetch". Optional files are kept present and current
+   like required ones, fetched on a fresh install too; a failed optional download warns and does
+   not block the start (Package download, steps 2–3).
+6. A failed download or replace falls back to the offline behaviour. **Accepted.**
+7. The package launcher starts with the package folder as its working directory. **Accepted.**

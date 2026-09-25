@@ -16,7 +16,7 @@ Adopted 2026-09-25 (#1), modelled on `Magto/mewgenics-coop`'s config.
 |---|---|
 | `REPO` | `Magto/ffb-coop` |
 | `DEFAULT_BRANCH` | `main` |
-| `MAC_CLONE` | `unknown — needs Martin` (no Mac clone exists yet; by convention it would be `/Users/magto/claude-project/ffb-coop`) |
+| `MAC_CLONE` | `none` — no Mac clone (Martin, 2026-09-25, PR #13) |
 | `WIN_CLONE` | `C:\Users\marti\claude-project\ffb-coop` |
 | `SESSION_GROUP` | `ffb-coop` — the agent-manager group does not exist yet (2026-09-25); the lead creates it (directory `/home/marti/claude-project/ffb-coop`, worktree on) before the next spawn |
 
@@ -78,7 +78,7 @@ until it is turned on.
 | `CHANGELOG_FILE` | `docs/CHANGELOG.md` |
 | `BEHAVIOUR_LOG_FILE` | `docs/BEHAVIOUR-LOG.md` |
 | `SPEC_FILE` | `docs/SPEC.md` — what FFB Co-op.exe does; not a process key, listed so nobody looks for it elsewhere |
-| `CLASS_RULE` | `unknown — needs Martin` — `RULES.md` starts empty and only `VERDICT_OWNER` adds a rule; mewgenics-coop's is its rule 17 |
+| `CLASS_RULE` | `none yet` — `RULES.md` is empty; only `VERDICT_OWNER` adds a rule (Martin, 2026-09-25, PR #13) |
 
 ## Gates and commands
 
@@ -89,7 +89,7 @@ until it is turned on.
 | `METRICS_CMD` | `tools/metrics.sh` — run it as `PROJECT_OWNER=Magto PROJECT_NUMBER=10 STALE_HOURS=24 tools/metrics.sh Magto/ffb-coop 7` |
 | `LOGCHECK_TAGS_CMD` | `tools/logcheck_tags.sh` — every TAG an open issue's Log check field names exists in `SOURCE_PATHS`; `#N: TAG not found`, exit 1 on any, exit 2 without `gh`. Not a ship gate. The closed-issue `EXERCISED #N` check is rule 1 of `SCAN_RULES_CMD` |
 | `DOC_RULES_CHECK` | `doc-rules` — the one check name (`.github/workflows/doc-rules.yml`); it runs both scripts and `tools/issue_forms_check.py` |
-| `SHIP_CMD` | `unknown — needs Martin` — the publish script is #7's to write; it must run `DOC_RULES_CMD` and `SCAN_RULES_CMD` and refuse on a non-zero exit |
+| `SHIP_CMD` | `tools/publish.py` (added by #7; Martin, 2026-09-25, PR #13) — it must run `DOC_RULES_CMD` and `SCAN_RULES_CMD` and refuse on a non-zero exit |
 | `BUILD_CMD` | `cmake --build build --config Release` (from #2's Done looks like) — `cmake` is not on the Git Bash PATH on the build machine; use the BuildTools copy under `Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/` |
 | `TEST_CMD` | `ctest --test-dir build -C Release [-R <test>]`, same BuildTools directory |
 | `TEST_LIST_CMD` | `ctest --test-dir build -C Release -N` — the "Total Tests:" count |
