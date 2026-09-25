@@ -25,9 +25,11 @@ static std::size_t utf8_length(const std::string& s) {
 }
 
 // CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9, with or without an extension:
-// Windows opens the device for "nul.txt" just as for "nul".
+// Windows opens the device for "nul.txt" just as for "nul", and for "nul .txt":
+// it drops trailing spaces from the part before the first dot before comparing.
 static bool is_reserved_device_name(const std::string& name) {
-    const std::string base = ascii_lower(name.substr(0, name.find('.')));
+    std::string base = ascii_lower(name.substr(0, name.find('.')));
+    base.erase(base.find_last_not_of(' ') + 1);
     if (base == "con" || base == "prn" || base == "aux" || base == "nul") return true;
     if (base.size() == 4 && (base.compare(0, 3, "com") == 0 || base.compare(0, 3, "lpt") == 0) &&
         base[3] >= '1' && base[3] <= '9')

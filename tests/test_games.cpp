@@ -334,6 +334,9 @@ static void test_plain_file_name() {
     for (const char* dev : {"CON", "PRN", "AUX", "NUL", "con", "Nul", "COM1", "com9", "LPT1", "lpt9",
                             "CON.exe", "nul.txt", "aux.tar.gz", "COM3.dll"})
         CHECK(!ffb::is_plain_file_name(dev));
+    // Windows drops trailing spaces from the part before the first dot, so these open the device.
+    for (const char* dev : {"nul .exe", "CON .txt", "com1  .dll", "LPT9 .a.b"})
+        CHECK(!ffb::is_plain_file_name(dev));
 
     std::string why;
     CHECK(!ffb::is_plain_file_name("a/b", &why) && why == "contains /");
