@@ -14,3 +14,16 @@ add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop)
 add_test(NAME ffb_coop_version_line COMMAND ffb_coop)
 set_tests_properties(ffb_coop_version_line PROPERTIES
     PASS_REGULAR_EXPRESSION "^FFB Co-op [0-9]+\\.[0-9]+\\.[0-9]+")
+
+# games.json parser and the network file-name rule (#3). third_party/json.hpp is
+# nlohmann/json 3.12.0, the copy mewgenics-coop's loader uses.
+add_executable(test_games test_games.cpp ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp)
+target_include_directories(test_games PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_options(test_games PRIVATE /W3)
+add_test(NAME test_games COMMAND test_games)
+
+# Game-folder finder (#3).
+add_executable(test_finder test_finder.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp)
+target_include_directories(test_finder PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_options(test_finder PRIVATE /W3)
+add_test(NAME test_finder COMMAND test_finder)
