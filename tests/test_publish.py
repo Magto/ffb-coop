@@ -80,6 +80,13 @@ class Writer(unittest.TestCase):
             with self.subTest(key=key, bad=bad), self.assertRaises(publish.Refused):
                 publish.build_games_json(g, fake_exe())
 
+    def test_exe_suffix_any_letter_case_accepted(self):
+        # Martin, 2026-09-25 12:53 (#3): "yes to the letter case" -- .exe in any case.
+        for key, name in (("launcher", "mewcoop_loader.EXE"), ("launcher", "Loader.Exe"), ("exe", "MEWGENICS.EXE")):
+            g = copy.deepcopy(GAMES_IN); g["games"][0][key] = name
+            with self.subTest(key=key, name=name):
+                self.assertEqual(publish.build_games_json(g, fake_exe())["games"][0][key], name)
+
     def test_duplicate_exe_any_case_refused(self):
         g = copy.deepcopy(GAMES_IN)
         g["games"].append(dict(g["games"][0], id="other", exe="MEWGENICS.EXE"))
