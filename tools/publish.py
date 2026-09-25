@@ -268,7 +268,11 @@ def remote_put(local, remote_name, sha256):
 def verify_live(doc):
     """Fetch both over https with no cookie and check them against what was published."""
     live = fetch(f"{URL}/games.json")
-    if live is None or json.loads(live.decode("utf-8")) != doc:
+    try:
+        live = None if live is None else json.loads(live.decode("utf-8"))
+    except ValueError:   # not JSON at all, e.g. the placeholder page
+        live = None
+    if live != doc:
         raise Refused(f"{URL}/games.json does not answer the published file without a cookie")
     exe = fetch(LAUNCHER_URL, timeout=120)
     la = doc["launcher"]

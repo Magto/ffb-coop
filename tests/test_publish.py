@@ -170,5 +170,121 @@ class DryRun(unittest.TestCase):
         self.assertEqual(publish.main(["--exe", self.exe + ".nope", "--out", self.out, "--dry-run"]), 1)
 
 
+class FakeServer:
+    """Stands in for ssh/scp and for https: a dict of remote path -> bytes. It does what the commands
+    say (scp copies the local file, `sha256sum`/`mv -f`/`rm -f`/`mkdir -p` act on the dict) and records
+    every command, so a test sees what publish sent and in which order. `corrupt` makes scp deliver
+    other bytes; `stale` makes https answer other bytes than the files on disk."""
+
+    def __init__(self):
+        self.files, self.cmds, self.corrupt, self.stale = {}, [], False, False
+
+    def run(self, cmd, check=True):
+        self.cmds.append(cmd)
+        out, rc = "", 0
+        if cmd[0] == "scp":
+            local, target = cmd[-2], cmd[-1]
+            with open(local, "rb") as f:
+                data = f.read()
+            self.files[target.split(":", 1)[1]] = data + (b"x" if self.corrupt else b"")
+        else:
+            shell = cmd[-1]
+            if shell.startswith("sha256sum "):
+                path = shell.split(" ", 1)[1]
+                out = f"{hashlib.sha256(self.files[path]).hexdigest()}  {path}\n"
+            elif shell.startswith("mv -f "):
+                src, dst = shell[len("mv -f "):].split(" ", 1)
+                self.files[dst.strip("'")] = self.files.pop(src)
+            elif shell.startswith("rm -f "):
+                self.files.pop(shell[len("rm -f "):], None)
+            elif not shell.startswith("mkdir -p "):
+                raise AssertionError(f"unexpected command {cmd}")
+        if check and rc:
+            raise publish.Refused("fake command failed")
+        return mock.Mock(returncode=rc, stdout=out, stderr="")
+
+    def fetch(self, url, timeout=20):
+        path = {publish.URL + "/games.json": publish.REMOTE + "/games.json",
+                publish.LAUNCHER_URL: publish.REMOTE + "/launcher/" + publish.EXE_NAME}[url]
+        data = self.files.get(path)
+        return None if data is None else (b"stale " + data if self.stale else data)
+
+    def index(self, pred):
+        return next(i for i, c in enumerate(self.cmds) if pred(c))
+
+
+class Upload(unittest.TestCase):
+    """A real (not --dry-run) publish against FakeServer: the upload order, the temporary names, the
+    server-side sha256 check and the cookie-free verify."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.exe = os.path.join(self.tmp.name, "FFB Co-op.exe")
+        self.data = fake_exe((1, 0, 0, 0))
+        with open(self.exe, "wb") as f:
+            f.write(self.data)
+        self.out = os.path.join(self.tmp.name, "games.json")
+        self.server = FakeServer()
+        self.patches = [mock.patch.object(publish, "run_gates"),
+                        mock.patch.object(publish, "fetch_live_games", return_value=None),
+                        mock.patch.object(publish, "run", side_effect=self.server.run),
+                        mock.patch.object(publish, "fetch", side_effect=self.server.fetch)]
+        for p in self.patches: p.start()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.tmp.cleanup()
+
+    def main(self):
+        return publish.main(["--exe", self.exe, "--out", self.out])
+
+    def test_exe_goes_up_before_games_json_under_temporary_names(self):
+        self.assertEqual(self.main(), 0)
+        s = self.server
+        scps = [c for c in s.cmds if c[0] == "scp"]
+        self.assertEqual(len(scps), 2)
+        for c in scps:
+            self.assertTrue(c[-1].split(":", 1)[1].startswith(publish.REMOTE + "/.upload-"), c)
+        exe_mv = s.index(lambda c: c[-1].startswith("mv -f ") and c[-1].endswith(f"/launcher/{publish.EXE_NAME}'"))
+        games_scp = s.index(lambda c: c[0] == "scp" and c[-2] == self.out)
+        games_mv = s.index(lambda c: c[-1].startswith("mv -f ") and c[-1].endswith("/games.json'"))
+        self.assertLess(exe_mv, games_scp)
+        self.assertLess(games_scp, games_mv)
+        self.assertEqual(s.files[publish.REMOTE + "/launcher/" + publish.EXE_NAME], self.data)
+        self.assertEqual(json.loads(s.files[publish.REMOTE + "/games.json"]), load(self.out))
+        self.assertEqual([p for p in s.files if ".upload-" in p], [])
+
+    def test_server_sha256_disagreeing_refused_and_nothing_moved(self):
+        self.server.corrupt = True
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[-1].startswith("mv ")])
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp" and c[-2] == self.out])
+
+    def test_live_answering_other_bytes_refused(self):
+        self.server.stale = True
+        self.assertEqual(self.main(), 1)
+
+    def test_verify_live_refuses_other_bytes(self):
+        doc = publish.build_games_json(copy.deepcopy(GAMES_IN), self.data)
+        good = {publish.URL + "/games.json": dumps_bytes(doc), publish.LAUNCHER_URL: self.data}
+        publish.fetch.side_effect = lambda url, timeout=20: good[url]
+        publish.verify_live(doc)   # the right bytes pass
+        for url, other in ((publish.LAUNCHER_URL, self.data + b"x"), (publish.LAUNCHER_URL, None),
+                           (publish.URL + "/games.json", b'{"schema": 1}'), (publish.URL + "/games.json", None)):
+            answers = dict(good, **{url: other})
+            publish.fetch.side_effect = lambda u, timeout=20, a=answers: a[u]
+            with self.subTest(url=url, other=other), self.assertRaises(publish.Refused):
+                publish.verify_live(doc)
+
+    def test_live_games_json_unreadable_refused_before_upload(self):
+        publish.fetch_live_games.side_effect = OSError("no route to host")
+        self.assertEqual(self.main(), 1)
+        self.assertEqual(self.server.cmds, [])
+
+
+def dumps_bytes(doc):
+    return publish.dumps(doc).encode("utf-8")
+
+
 if __name__ == "__main__":
     unittest.main()
