@@ -24,6 +24,9 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 option(FFB_BUILD_TESTS "build the unit tests in tests/" ON)
 
 add_executable(ffb_coop src/main.cpp res/ffb_coop.rc)
+# Self-update (#5): the logic, and its Windows side (WinHTTP, BCrypt).
+target_sources(ffb_coop PRIVATE src/selfupdate.cpp src/selfupdate_win.cpp)
+target_link_libraries(ffb_coop PRIVATE winhttp bcrypt)
 # The file name players see, space and all. The target keeps a plain name.
 set_target_properties(ffb_coop PROPERTIES OUTPUT_NAME "FFB Co-op")
 target_compile_definitions(ffb_coop PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
