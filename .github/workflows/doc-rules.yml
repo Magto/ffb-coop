@@ -1,7 +1,8 @@
 name: doc-rules
 
 # The one mechanical-check name (DOC_RULES_CHECK in docs/agents/LEAD-CONFIG.md): the prose-doc rules,
-# the source rules and the issue-form check, on every pull request and every push to main.
+# the source rules, the issue-form check and tools/publish.py's unit tests, on every pull request and
+# every push to main.
 
 on:
   pull_request:
@@ -35,3 +36,6 @@ jobs:
         run: |
           python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
           python3 tools/issue_forms_check.py
+      - name: tools/publish.py unit tests
+        # SHIP_CMD's tests are plain Python (no build needed), so they run here; ctest runs them too.
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
