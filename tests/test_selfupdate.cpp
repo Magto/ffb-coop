@@ -135,13 +135,6 @@ int main() {
     CHECK(cmp("1.0.0", "1.0.0") == 0);
     CHECK(cmp("0.1.0", "0.0.9") == 1);
 
-    // --- sha256 compare: any case ---
-    CHECK(is_sha256_hex(kGoodSha));
-    CHECK(!is_sha256_hex(kGoodSha.substr(1)));
-    CHECK(!is_sha256_hex(kGoodSha.substr(1) + "g"));
-    CHECK(sha256_equal("ABCDEF", "abcdef"));
-    CHECK(!sha256_equal("abcdef", "abcdee"));
-
     // --- the file names, space and all ---
     CHECK(staged_path(kSelf) == kNew);
     CHECK(old_path(kSelf) == kOld);
@@ -222,6 +215,11 @@ int main() {
         FakeIo io2;
         CHECK(self_update(b, v(0, 1, 0), io2) == SelfUpdateOutcome::Failed);
         CHECK(io2.downloads == 0);
+        b = block("0.2.0");
+        b.sha256 = kGoodSha.substr(1) + "g";   // 64 characters, one not hex
+        FakeIo io4;
+        CHECK(self_update(b, v(0, 1, 0), io4) == SelfUpdateOutcome::Failed);
+        CHECK(io4.downloads == 0);
         b = block("0.2.0");
         b.url = "http://coopmods.com/launcher/FFB%20Co-op.exe";
         FakeIo io3;

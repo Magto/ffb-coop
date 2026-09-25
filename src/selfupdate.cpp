@@ -42,6 +42,23 @@ bool parse_part(const std::string& s, size_t* pos, int* out) {
     return true;
 }
 
+// Private on purpose: #4's src/net.h (PR #17) exports ffb::is_sha256_hex and
+// ffb::same_sha256, and two exported definitions of one name would not link.
+// Once #17 is merged these two give way to net.h's.
+bool is_sha256_hex(const std::string& s) {
+    if (s.size() != 64) return false;
+    for (char c : s)
+        if (!std::isxdigit((unsigned char)c)) return false;
+    return true;
+}
+
+bool sha256_equal(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    return true;
+}
+
 std::string version_str(const Version& v) {
     return std::to_string(v.major) + "." + std::to_string(v.minor) + "." + std::to_string(v.patch);
 }
@@ -76,20 +93,6 @@ Version running_version() {
     v.minor = FFB_VERSION_MINOR;
     v.patch = FFB_VERSION_PATCH;
     return v;
-}
-
-bool is_sha256_hex(const std::string& s) {
-    if (s.size() != 64) return false;
-    for (char c : s)
-        if (!std::isxdigit((unsigned char)c)) return false;
-    return true;
-}
-
-bool sha256_equal(const std::string& a, const std::string& b) {
-    if (a.size() != b.size()) return false;
-    for (size_t i = 0; i < a.size(); ++i)
-        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
-    return true;
 }
 
 std::wstring staged_path(const std::wstring& self) {

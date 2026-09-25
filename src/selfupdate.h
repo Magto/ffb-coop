@@ -68,12 +68,6 @@ int compare_version(const Version& a, const Version& b);
 // version resource carries).
 Version running_version();
 
-// Exactly 64 hex digits, any case.
-bool is_sha256_hex(const std::string& s);
-
-// Hex strings equal without regard to case.
-bool sha256_equal(const std::string& a, const std::string& b);
-
 // Everything the update touches outside this process's memory. Paths are wide
 // strings because the game folder can hold any character; URLs and hashes are
 // ASCII.
