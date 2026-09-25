@@ -16,7 +16,8 @@ launcher does with games.json is `docs/SPEC.md`; the Mewgenics package itself is
 - Hetzner, `89.167.37.21` (`ssh root@89.167.37.21`). DNS: `coopmods.com` and `www` already point there.
 - Web server: Caddy, container `caddy`, Caddyfile `/opt/matrix/caddy/Caddyfile` (in the container
   `/etc/caddy/Caddyfile`). Host `/opt/downloads` is `/downloads` in the container.
-- The site block:
+- The site block. It **replaces** the `coopmods.com` placeholder block that was there before; it is
+  not a second block beside it:
 
 ```
 # FFB Co-op launcher: games.json and the launcher's own update, served WITHOUT a cookie --
@@ -50,6 +51,11 @@ old file. Instead:
 3. `docker exec caddy caddy validate --config /etc/caddy/Caddyfile`, and only when it passes
 4. `docker exec caddy caddy reload --config /etc/caddy/Caddyfile`.
 
+If validate fails, **first** put the backup back, in place, the same way as step 2 (read the `.bak`,
+then `r+`, `seek(0)`, `write`, `truncate()`, and check the inode), and only then work out what went
+wrong. The live file is already edited at that point: left as it is, Caddy fails to start at the next
+container restart and takes Matrix and every other site down with it.
+
 Content changes (games.json, the exe) need no reload. Touch no other site block in that file: it also
 serves Matrix, mewgenics.coopmods.com, patreon, logs and other sites.
 
@@ -78,4 +84,5 @@ Until the first publish there is no games.json on the server (a 404). That is de
 requires a `launcher` block and at least one game, so there is no valid empty placeholder, and the
 launcher treats a 404 like an unreachable server.
 
-Tests: `python -m unittest discover -s tests -p "test_*.py"` (no network, no exe needed).
+Tests: `python -m unittest discover -s tests -p "test_*.py"` (no network, no exe needed). CI runs them
+in the `doc-rules` check, and `ctest` runs them as `test_publish`.
