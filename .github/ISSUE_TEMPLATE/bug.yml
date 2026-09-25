@@ -1,0 +1,85 @@
+name: Bug
+description: Something FFB Co-op.exe, a package download or the coopmods.com server does that it should not do.
+labels: ["type/bug", "status/triage"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One line. What is wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro and evidence
+      description: Exact steps (which folder, which game, online or offline), then the console output that shows it. Paste the lines, not a description of them.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: done-looks-like
+    attributes:
+      label: Done looks like
+      description: >
+        3–8 bullets, each one thing a reader could check once this is fixed — a player-visible
+        behaviour, a log line, a test that passes. Observable, not implementation: what is true
+        afterwards, never how to build it. Fewer than 3 bullets means the ask is not understood
+        yet; more than 8 means this is more than one issue and should be split.
+    validations:
+      required: true
+  - type: textarea
+    id: log-check
+    attributes:
+      label: Log check
+      description: >
+        How the log proves this, one line per entry, each starting with the TAG exactly as it is
+        logged. `Symptom: TAG text fragment` -- the line(s) that show the bug happening.
+        `Fixed: TAG text fragment` -- the line(s) that show the fix working; a Fixed line is never
+        read alone, only together with the Symptom lines being absent. When the bug has no log
+        signature, write `manual only: <what a person looks at>` instead -- a made-up line is
+        worse than "manual only". Name only a TAG the code already logs; one the fix adds joins
+        this field after its PR merges, and `EXERCISED #N` needs no TAG of its own.
+        tools/logcheck_tags.sh checks every TAG named here exists in the source (process v25).
+      placeholder: |
+        Symptom: TAG text fragment of the line that shows the bug
+        Fixed: TAG text fragment of the line that shows the fix ran
+    validations:
+      required: true
+  - type: input
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: The nearest thing this issue is not. One line. "nothing" is an answer.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: FFB Co-op version
+      description: "Read FFB_VERSION_STR from src/ffb_version.h, never from a doc. For a package problem, also the game manifest's version."
+    validations:
+      required: true
+  - type: textarea
+    id: symbols
+    attributes:
+      label: Files or symbols involved
+      description: Symbol names and file names. No line numbers — they drift.
+    validations:
+      required: true
+  - type: textarea
+    id: read-these
+    attributes:
+      label: Read these
+      description: The exact list of files an agent needs to do this, and nothing more. One per line. Do not list docs/history/.
+    validations:
+      required: true
+  - type: dropdown
+    id: game-test
+    attributes:
+      label: Needs game test
+      options:
+        - "no"
+        - "yes"
+    validations:
+      required: true
