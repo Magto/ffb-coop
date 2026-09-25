@@ -14,3 +14,11 @@ add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop)
 add_test(NAME ffb_coop_version_line COMMAND ffb_coop)
 set_tests_properties(ffb_coop_version_line PROPERTIES
     PASS_REGULAR_EXPRESSION "^FFB Co-op [0-9]+\\.[0-9]+\\.[0-9]+")
+
+# #4: sha256 (src/net.cpp) and the package update (src/package.cpp), with a fake network.
+add_executable(test_sha256 test_sha256.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+target_include_directories(test_sha256 PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME test_sha256 COMMAND test_sha256)
+add_executable(test_package test_package.cpp ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp)
+target_include_directories(test_package PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+add_test(NAME test_package COMMAND test_package)
