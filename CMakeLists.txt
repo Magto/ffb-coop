@@ -27,11 +27,15 @@ add_executable(ffb_coop src/main.cpp res/ffb_coop.rc)
 # Self-update (#5): the logic, and its Windows side (WinHTTP, BCrypt).
 target_sources(ffb_coop PRIVATE src/selfupdate.cpp src/selfupdate_win.cpp)
 target_link_libraries(ffb_coop PRIVATE winhttp bcrypt)
+# The start flow (#6) and the pieces it wires together: games.json and the
+# finder (#3), the package update and its network (#4).
+target_sources(ffb_coop PRIVATE src/app.cpp src/app_win.cpp src/games.cpp src/finder.cpp
+    src/plain_name.cpp src/package.cpp src/net.cpp)
 # The file name players see, space and all. The target keeps a plain name.
 set_target_properties(ffb_coop PROPERTIES OUTPUT_NAME "FFB Co-op")
 target_compile_definitions(ffb_coop PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
 target_compile_options(ffb_coop PRIVATE /W3)
-target_include_directories(ffb_coop PRIVATE src)
+target_include_directories(ffb_coop PRIVATE src third_party)
 # res/ffb_coop.rc includes ffb_version.h, so the version resource and the
 # printed version line come from the same numbers.
 set_property(SOURCE res/ffb_coop.rc APPEND PROPERTY INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/src)

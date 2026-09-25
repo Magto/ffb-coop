@@ -13,14 +13,27 @@ target_include_directories(test_selfupdate PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(test_selfupdate PRIVATE /W3)
 add_test(NAME test_selfupdate COMMAND test_selfupdate)
 
-# The exe itself (Done bullet 1 of #2), as two tests: with PASS_REGULAR_EXPRESSION
+# The exe itself (Done bullet 1 of #2), as separate tests: with PASS_REGULAR_EXPRESSION
 # set ctest ignores the exit code, so the output and the exit code cannot share one.
+# Both run `FFB Co-op.exe --version`, which stops before any network or folder work
+# (#6): the suite never depends on the network or on what coopmods.com serves. The
+# flow's screens and exit codes are test_app's, over fakes.
 # ffb_coop_exits_0: runs and exits 0 (no pass regex, so the exit code decides).
-add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop)
+add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop --version)
 # ffb_coop_version_line: prints the version line first.
-add_test(NAME ffb_coop_version_line COMMAND ffb_coop)
+add_test(NAME ffb_coop_version_line COMMAND ffb_coop --version)
 set_tests_properties(ffb_coop_version_line PROPERTIES
     PASS_REGULAR_EXPRESSION "^FFB Co-op [0-9]+\\.[0-9]+\\.[0-9]+")
+# ffb_coop_offline_not_installed: the whole exe with no argument, in build\Release
+# (no game, nothing installed). FFB_COOP_OFFLINE=1 makes every fetch fail
+# (src/app_win.cpp), so this takes the offline path whatever coopmods.com serves.
+# ctest pipes the output, so the key wait is skipped (WindowsAppIo::wait_key).
+add_test(NAME ffb_coop_offline_not_installed COMMAND ffb_coop)
+set_tests_properties(ffb_coop_offline_not_installed PROPERTIES
+    PASS_REGULAR_EXPRESSION "Could not reach coopmods.com, and FFB Co-op is not installed in ")
+# Every test that runs the exe: never the live server, and never a hang.
+set_tests_properties(ffb_coop_exits_0 ffb_coop_version_line ffb_coop_offline_not_installed
+    PROPERTIES ENVIRONMENT "FFB_COOP_OFFLINE=1" TIMEOUT 30)
 
 # games.json parser and the network file-name rule (#3). third_party/json.hpp is
 # nlohmann/json 3.12.0, the copy mewgenics-coop's loader uses.
@@ -42,6 +55,23 @@ add_test(NAME test_sha256 COMMAND test_sha256)
 add_executable(test_package test_package.cpp ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp)
 target_include_directories(test_package PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 add_test(NAME test_package COMMAND test_package)
+
+# #6: the start flow over a fake network, self-update, process start and key press,
+# against a real temporary game folder.
+add_executable(test_app test_app.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
+    ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+target_include_directories(test_app PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_definitions(test_app PRIVATE NOMINMAX)
+add_test(NAME test_app COMMAND test_app)
+
+# #6: the command line handed to the package launcher -- quoting and passthrough.
+add_executable(test_cmdline test_cmdline.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
+    ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_definitions(test_cmdline PRIVATE NOMINMAX)
+add_test(NAME test_cmdline COMMAND test_cmdline)
 
 # tools/publish.py, the SHIP_CMD (#7): its Python unit tests, so TEST_CMD runs them beside the C++
 # ones. CI runs the same suite in .github/workflows/doc-rules.yml.

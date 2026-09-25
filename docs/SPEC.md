@@ -50,6 +50,10 @@ The same exe serves every game. There is no Steam lookup and no game menu: the f
 
 If step 1 fails, the launcher follows [Offline](#offline) instead of steps 2–4.
 
+`FFB Co-op.exe --version`, with `--version` as its only argument, prints the version line and exits
+0 before step 1: no network, nothing read or written in the folder. With any other argument beside
+it, `--version` is passed on to the package launcher like the rest (#6).
+
 ## games.json
 
 Served at `https://coopmods.com/games.json`, UTF-8 JSON, without the site cookie.
@@ -156,7 +160,9 @@ A manifest that breaks any rule is rejected whole, and nothing is downloaded fro
    shows the error and waits for a key **(spec default)**.
 
 A good games.json is also saved as `FFB Co-op\games.json` once the game is found, so a later
-offline start knows which exe names to look for **(spec default)**.
+offline start knows which exe names to look for **(spec default)**. After a good update the game's
+manifest is kept the same way, as `FFB Co-op\manifest.json`, so an offline start knows every
+required file of the package (#6).
 
 ## Network file-name rule
 

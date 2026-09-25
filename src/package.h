@@ -65,6 +65,11 @@ struct PackageResult {
     std::string              version;   // the manifest's version, once it parsed
     std::vector<std::string> updated;   // files replaced or newly installed this run
     std::vector<std::string> warnings;  // optional files that failed; never block the start
+    // Once the manifest parsed (Current and Failed; Invalid when only the
+    // launcher rule broke): its text, which the start flow keeps for offline
+    // starts, and what it lists.
+    std::string              manifest_text;
+    Manifest                 manifest;
 };
 
 // Brings `package_dir` (UTF-8; created when missing) up to date with the

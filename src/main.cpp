@@ -1,11 +1,9 @@
 // main.cpp -- FFB Co-op.exe entry point.
 //
-// Scaffold only (#2): prints the version line and exits 0. The launcher
-// behaviour (self-update, games.json, package download, start) lands in #3-#6.
-#include "ffb_version.h"
-#include <cstdio>
+// The start flow is src/app.cpp (run_app, #6); its Windows side is
+// src/app_win.cpp. This file only hands over to it.
+#include "app.h"
 
 int main() {
-    std::printf("%s\n", ffb_version_line().c_str());
-    return 0;
+    return ffb::run_windows();
 }
