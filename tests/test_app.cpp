@@ -356,6 +356,48 @@ void test_manifest_unreachable_installed() {
     CHECK(io.starts.size() == 1);
 }
 
+void test_invalid_manifest() {
+    const std::string pre  = "coopmods.com sent a file this version cannot read (";
+    const std::string post = ") -- starting the installed version.";
+    // Breaks the manifest rules: "files" must hold at least one entry.
+    const std::string bad = "{\"version\":\"76.0.0\",\"wire\":34,\"files\":[]}";
+
+    std::printf("games.json fine, manifest invalid, package installed: the cannot-read line, then start\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    install(t);
+    FakeIo io;
+    serve_all(io);
+    io.net_.pages[kManifestUrl] = {200, bad};
+    CHECK(ffb::run_app(input(t), io) == 0);
+    CHECK(io.errs.size() == 1);
+    if (io.errs.size() == 1) {
+        CHECK(io.errs[0].rfind(pre, 0) == 0);
+        CHECK(io.errs[0].size() > pre.size() + post.size() &&
+              io.errs[0].compare(io.errs[0].size() - post.size(), post.size(), post) == 0);
+    }
+    CHECK(io.starts.size() == 1);
+    CHECK(io.keys == 0);
+    CHECK(read(t.pkg() / "manifest.json") == manifest());   // the kept one is not overwritten
+
+    std::printf("games.json fine, manifest invalid, nothing installed: the not-installed screen\n");
+    TempFolder t2;
+    write(t2.path / "Mewgenics.exe", "game");
+    FakeIo io2;
+    serve_all(io2);
+    io2.net_.pages[kManifestUrl] = {200, bad};
+    CHECK(ffb::run_app(input(t2), io2) == 1);
+    CHECK(io2.errs.size() == 2);
+    if (io2.errs.size() == 2) {
+        CHECK(io2.errs[0].rfind(pre, 0) == 0);
+        CHECK(io2.errs[0].find("), and FFB Co-op is not installed in " + t2.str() +
+                               " yet. Connect to the internet and start it again.") != std::string::npos);
+        CHECK(io2.errs[1] == "Press any key to exit.");
+    }
+    CHECK(io2.keys == 1);
+    CHECK(io2.starts.empty());
+}
+
 void test_download_failed_not_installed() {
     std::printf("a required file fails its sha256 on a fresh install: nothing to fall back on, key press\n");
     TempFolder t;
@@ -479,6 +521,7 @@ int main() {
     test_offline_empty_folder();
     test_invalid_games_json();
     test_manifest_unreachable_installed();
+    test_invalid_manifest();
     test_download_failed_not_installed();
     test_download_failed_installed();
     test_self_update_failed();
