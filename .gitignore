@@ -1,1 +1,3 @@
 build/
+site/games.json
+__pycache__/
