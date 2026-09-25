@@ -14,4 +14,5 @@ Windows only. Players who already use the standalone Mewgenics loader can keep u
 - `docs/agents/START.md` — how work on this repo is organised (for contributors and agent
   sessions).
 
-MIT licence — see `LICENSE`.
+MIT licence — see `LICENSE`. Third-party code compiled into `FFB Co-op.exe` (nlohmann/json) and
+its licence text are listed in `THIRD-PARTY-NOTICES.md`.
