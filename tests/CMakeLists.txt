@@ -15,8 +15,12 @@ add_test(NAME test_selfupdate COMMAND test_selfupdate)
 
 # The exe itself (Done bullet 1 of #2), as two tests: with PASS_REGULAR_EXPRESSION
 # set ctest ignores the exit code, so the output and the exit code cannot share one.
-# ffb_coop_exits_0: runs and exits 0 (no pass regex, so the exit code decides).
-add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop)
+# ffb_coop_no_game_exits_1: build\Release holds no game, so since #6 the exe ends on
+# an error screen -- "not installed yet" while games.json is unreachable, the none
+# screen once it is published -- and both exit 1 (docs/SPEC.md, Error screens).
+# ctest pipes the output, so the key wait is skipped (app_win.cpp, wait_key).
+add_test(NAME ffb_coop_no_game_exits_1 COMMAND ffb_coop)
+set_tests_properties(ffb_coop_no_game_exits_1 PROPERTIES WILL_FAIL TRUE TIMEOUT 60)
 # ffb_coop_version_line: prints the version line first.
 add_test(NAME ffb_coop_version_line COMMAND ffb_coop)
 set_tests_properties(ffb_coop_version_line PROPERTIES
@@ -42,3 +46,20 @@ add_test(NAME test_sha256 COMMAND test_sha256)
 add_executable(test_package test_package.cpp ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp)
 target_include_directories(test_package PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 add_test(NAME test_package COMMAND test_package)
+
+# #6: the start flow over a fake network, self-update, process start and key press,
+# against a real temporary game folder.
+add_executable(test_app test_app.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
+    ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+target_include_directories(test_app PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_definitions(test_app PRIVATE NOMINMAX)
+add_test(NAME test_app COMMAND test_app)
+
+# #6: the command line handed to the package launcher -- quoting and passthrough.
+add_executable(test_cmdline test_cmdline.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
+    ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_definitions(test_cmdline PRIVATE NOMINMAX)
+add_test(NAME test_cmdline COMMAND test_cmdline)
