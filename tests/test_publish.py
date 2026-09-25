@@ -286,5 +286,60 @@ def dumps_bytes(doc):
     return publish.dumps(doc).encode("utf-8")
 
 
+class Gates(unittest.TestCase):
+    """run_gates for real, against a temporary tree standing in for the repo."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        os.makedirs(os.path.join(self.tmp.name, "tools"))
+        self.exe = os.path.join(self.tmp.name, "FFB Co-op.exe")
+        with open(self.exe, "wb") as f:
+            f.write(fake_exe((1, 0, 0, 0)))
+        self.out = os.path.join(self.tmp.name, "games.json")
+        self.run = mock.Mock(side_effect=AssertionError("published past a failing gate"))
+        self.patches = [mock.patch.object(publish, "REPO", self.tmp.name),
+                        mock.patch.object(publish, "fetch_live_games", return_value=None),
+                        mock.patch.object(publish, "fetch", side_effect=AssertionError("fetched")),
+                        mock.patch.object(publish, "run", self.run)]
+        for p in self.patches: p.start()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.tmp.cleanup()
+
+    def gate(self, name, body):
+        with open(os.path.join(self.tmp.name, "tools", name), "w", newline="\n") as f:
+            f.write("#!/bin/bash\n" + body + "\n")
+
+    def main(self, *extra):
+        return publish.main(["--exe", self.exe, "--out", self.out, *extra])
+
+    def test_failing_gate_refused(self):
+        self.gate("doc_rules.sh", "exit 0")
+        self.gate("scan_rules.sh", "echo 'x.cpp:1: bad'; exit 3")
+        self.assertEqual(self.main(), 1)
+        self.run.assert_not_called()
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_failing_gate_refused_on_dry_run_too(self):
+        self.gate("doc_rules.sh", "exit 3")
+        self.gate("scan_rules.sh", "exit 0")
+        self.assertEqual(self.main("--dry-run"), 1)
+
+    def test_missing_gate_refused(self):
+        self.gate("doc_rules.sh", "exit 0")
+        self.assertEqual(self.main(), 1)
+        self.run.assert_not_called()
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_passing_gates_let_it_through(self):
+        # the control: the same tree with both gates green gets past the gates (to the fake upload)
+        self.gate("doc_rules.sh", "exit 0")
+        self.gate("scan_rules.sh", "exit 0")
+        self.run.side_effect = publish.Refused("stop at the upload")
+        self.assertEqual(self.main(), 1)
+        self.run.assert_called()
+
+
 if __name__ == "__main__":
     unittest.main()
