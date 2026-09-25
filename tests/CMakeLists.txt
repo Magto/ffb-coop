@@ -63,3 +63,14 @@ add_executable(test_cmdline test_cmdline.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${C
 target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(test_cmdline PRIVATE NOMINMAX)
 add_test(NAME test_cmdline COMMAND test_cmdline)
+
+# tools/publish.py, the SHIP_CMD (#7): its Python unit tests, so TEST_CMD runs them beside the C++
+# ones. CI runs the same suite in .github/workflows/doc-rules.yml.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME test_publish
+             COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -p test_publish.py
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+else()
+    message(WARNING "no Python 3 found: test_publish (tools/publish.py) is not registered")
+endif()
