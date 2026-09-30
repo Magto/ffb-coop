@@ -244,8 +244,8 @@ known yet, and FFB Co-op.exe assumes neither.
 
 | What | Where |
 |---|---|
-| Host | Hetzner, `89.167.37.21`; `coopmods.com` already resolves there and serves a placeholder |
-| Web server | Caddy, container `caddy`, Caddyfile `/opt/matrix/caddy/Caddyfile` |
+| Host | the server `coopmods.com` resolves to; it serves a placeholder at the root |
+| Web server | Caddy, in a container named `caddy` |
 | `https://coopmods.com/games.json` | games.json — served **without** the cookie |
 | `https://coopmods.com/launcher/FFB%20Co-op.exe` | the launcher's own update — served **without** the cookie |
 | `https://mewgenics.coopmods.com/update/manifest.json` and its sibling files | the Mewgenics package, already published by mewgenics-coop, already cookie-free |
