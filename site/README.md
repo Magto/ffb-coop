@@ -13,9 +13,9 @@ launcher does with games.json is `docs/SPEC.md`; the Mewgenics package itself is
 
 ## Server
 
-- Hetzner, `89.167.37.21` (`ssh root@89.167.37.21`). DNS: `coopmods.com` and `www` already point there.
-- Web server: Caddy, container `caddy`, Caddyfile `/opt/matrix/caddy/Caddyfile` (in the container
-  `/etc/caddy/Caddyfile`). Host `/opt/downloads` is `/downloads` in the container.
+- The server `coopmods.com` and `www` resolve to; `HOST` in `tools/publish.py` is how to reach it.
+- Web server: Caddy, container `caddy`, its Caddyfile bind-mounted from the host (`$CADDYFILE` below;
+  `/etc/caddy/Caddyfile` in the container). Host `/opt/downloads` is `/downloads` in the container.
 - The site block. It **replaces** the `coopmods.com` placeholder block that was there before; it is
   not a second block beside it:
 
@@ -45,7 +45,7 @@ It is a **single-file bind mount: never `sed -i` it**, and never replace it with
 new file and renames it over the old one. Either replaces the inode, and the container keeps reading the
 old file. Instead:
 
-1. `cp /opt/matrix/caddy/Caddyfile /opt/matrix/caddy/Caddyfile.bak-<date>`
+1. `cp "$CADDYFILE" "$CADDYFILE.bak-<date>"`
 2. change it in place: open read/write, write, truncate (Python `open(p, "r+")`, `seek(0)`, `write`,
    `truncate()`), and check `stat -c %i` shows the same inode as before;
 3. `docker exec caddy caddy validate --config /etc/caddy/Caddyfile`, and only when it passes
