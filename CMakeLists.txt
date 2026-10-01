@@ -31,6 +31,9 @@ target_link_libraries(ffb_coop PRIVATE winhttp bcrypt)
 # finder (#3), the package update and its network (#4).
 target_sources(ffb_coop PRIVATE src/app.cpp src/app_win.cpp src/games.cpp src/finder.cpp
     src/plain_name.cpp src/package.cpp src/net.cpp)
+# The ed25519 signature check on games.json and the manifest (#21); the
+# arithmetic is TweetNaCl, public domain (THIRD-PARTY-NOTICES.md).
+target_sources(ffb_coop PRIVATE src/signature.cpp third_party/tweetnacl.c)
 # The file name players see, space and all. The target keeps a plain name.
 set_target_properties(ffb_coop PROPERTIES OUTPUT_NAME "FFB Co-op")
 target_compile_definitions(ffb_coop PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
@@ -44,3 +47,13 @@ if(FFB_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# third_party/tweetnacl.c is kept byte-for-byte as published; its narrowing
+# conversions and unsigned negation are deliberate (constant-time arithmetic),
+# so those three MSVC warnings are silenced for that one file, everywhere it builds.
+set(_tweetnacl_dirs ${CMAKE_SOURCE_DIR})
+if(FFB_BUILD_TESTS)
+    list(APPEND _tweetnacl_dirs ${CMAKE_SOURCE_DIR}/tests)
+endif()
+set_source_files_properties(${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c DIRECTORY ${_tweetnacl_dirs}
+    PROPERTIES COMPILE_OPTIONS "/wd4244;/wd4146;/wd4018")

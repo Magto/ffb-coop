@@ -202,7 +202,8 @@ std::string sibling_url(const std::string& manifest_url, const std::string& name
 }
 
 PackageResult update_package(const std::string& package_dir, const std::string& manifest_url,
-                             const std::string& required_launcher, Net& net, std::FILE* log) {
+                             const std::string& required_launcher, Net& net, std::FILE* log,
+                             const std::vector<PublicKey>& keys) {
     PackageResult res;
 
     // --- 1. the manifest ---
@@ -217,6 +218,25 @@ PackageResult update_package(const std::string& package_dir, const std::string& 
         res.outcome = PackageOutcome::Unreachable;
         res.reason  = status == 0 ? "no answer from " + manifest_url
                                   : manifest_url + " said HTTP " + std::to_string(status);
+        return res;
+    }
+    // Its signature, checked over the exact bytes before any of them is parsed.
+    const std::string sig_url = signature_url(manifest_url);
+    std::string sig;
+    const int sig_status = get_body(net, sig_url, &sig);
+    if (sig_status == 0) {
+        res.outcome = PackageOutcome::Unreachable;
+        res.reason  = "no answer from " + sig_url;
+        return res;
+    }
+    if (sig_status != 200) {
+        res.outcome = PackageOutcome::Unsigned;
+        res.reason  = "the manifest is not signed: " + sig_url + " said HTTP " + std::to_string(sig_status);
+        return res;
+    }
+    res.reason = check_signature("the manifest", body, sig, keys);
+    if (!res.reason.empty()) {
+        res.outcome = PackageOutcome::Unsigned;
         return res;
     }
     Manifest m;

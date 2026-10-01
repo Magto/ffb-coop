@@ -11,17 +11,25 @@ What it does, in order, and what makes it refuse:
    ProductVersion disagree, or when --version is given and differs from the exe's.
 3. Builds games.json: the `launcher` block from those bytes, the games list from site/games.json.in, and
    checks the result against every docs/SPEC.md rule (a file the launcher would reject is never written).
+   Signs it (#21, tools/signing.py): games.json.sig beside it, with the private key from COOPMODS_SIGNING_KEY or
+   ~/.config/coopmods/signing.key. Refuses without that key, or with one whose public key is not in
+   src/trusted_keys.h (the launcher would refuse what it signs). A --dry-run without the key only warns.
 4. Compares with the games.json that is live now. Refuses a lower launcher version (installed launchers
    would never take it) and the same version with different bytes (installed launchers compare versions
    only, so they would never fetch the new bytes -- bump the version).
-5. Uploads the exe under a temporary name, checks its sha256 on the server, moves it over
-   launcher/FFB Co-op.exe; then games.json the same way, LAST, so it never advertises bytes that are not
-   up yet. Then fetches both over https WITHOUT a cookie and checks them.
+5. Checks that coopmods.com routes /games.json.sig to the files (not the placeholder), so a launcher can
+   fetch the signature. Uploads the exe under a temporary name, checks its sha256 on the server, moves it
+   over launcher/FFB Co-op.exe; then games.json.sig and games.json the same way, games.json LAST, so it never
+   advertises bytes that are not up yet. Then fetches all three over https WITHOUT a cookie and checks them,
+   the signature against the trusted keys.
 
---dry-run does 1-4 (the live comparison only if the server answers) and writes site/games.json, and
-uploads nothing. The server layout and the Caddy block are in site/README.md.
+--dry-run does 1-4 (the live comparison only if the server answers) and writes site/games.json (and
+site/games.json.sig when the key is there), and uploads nothing. The server layout and the Caddy block are in site/README.md.
 """
 import argparse, hashlib, json, os, re, struct, subprocess, sys, tempfile, urllib.error, urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import signing  # noqa: E402  -- tools/signing.py, #21
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOST = "root@89.167.37.21"
@@ -29,6 +37,9 @@ REMOTE = "/opt/downloads/ffb-coop-site"      # /downloads/ffb-coop-site in the c
 URL = "https://coopmods.com"
 EXE_NAME = "FFB Co-op.exe"
 LAUNCHER_URL = f"{URL}/launcher/FFB%20Co-op.exe"
+GAMES_URL = f"{URL}/games.json"
+SIG_URL = GAMES_URL + signing.SIG_SUFFIX
+PLACEHOLDER = b"Mewgenics Coop -- coopmods.com"   # what the site block answers for a path it does not route
 DEFAULT_EXE = os.path.join(REPO, "build", "Release", EXE_NAME)
 GAMES_IN = os.path.join(REPO, "site", "games.json.in")
 GATES = ("tools/doc_rules.sh", "tools/scan_rules.sh")   # DOC_RULES_CMD, SCAN_RULES_CMD
@@ -265,20 +276,49 @@ def remote_put(local, remote_name, sha256):
     run(["ssh", HOST, f"mv -f {tmp} '{REMOTE}/{remote_name}'"])
 
 
-def verify_live(doc):
-    """Fetch both over https with no cookie and check them against what was published."""
-    live = fetch(f"{URL}/games.json")
+def verify_live(doc, keys):
+    """Fetch all three over https with no cookie and check them against what was published; the signature
+    must sign the live games.json bytes under one of `keys` (the launcher's)."""
+    raw = fetch(GAMES_URL)
     try:
-        live = None if live is None else json.loads(live.decode("utf-8"))
+        live = None if raw is None else json.loads(raw.decode("utf-8"))
     except ValueError:   # not JSON at all, e.g. the placeholder page
         live = None
     if live != doc:
         raise Refused(f"{URL}/games.json does not answer the published file without a cookie")
+    sig = fetch(SIG_URL)
+    if sig is None or not signing.verify_bytes(raw, sig, keys):
+        raise Refused(f"{SIG_URL} does not answer a valid signature of the live games.json without a cookie")
     exe = fetch(LAUNCHER_URL, timeout=120)
     la = doc["launcher"]
     if exe is None or len(exe) != la["size"] or hashlib.sha256(exe).hexdigest() != la["sha256"]:
         raise Refused(f"{LAUNCHER_URL} does not answer the published exe without a cookie")
-    print(f"verified without a cookie: games.json and {EXE_NAME} {la['version']} ({la['size']} bytes)")
+    print(f"verified without a cookie: games.json, its signature and {EXE_NAME} {la['version']} "
+          f"({la['size']} bytes)")
+
+
+def check_sig_route():
+    """Refuse before uploading anything when coopmods.com does not serve /games.json.sig from the files: the
+    site block answers its placeholder for a path it does not route (site/README.md), and a launcher that
+    cannot fetch the signature refuses games.json."""
+    try:
+        data = fetch(SIG_URL)
+    except Exception as e:   # noqa: BLE001 -- any network failure
+        raise Refused(f"cannot read {SIG_URL}: {e}")
+    if data is not None and data.strip() == PLACEHOLDER:
+        raise Refused(f"coopmods.com does not route {SIG_URL} to the files yet -- add /games.json.sig to the "
+                      "site block's matcher first (site/README.md)")
+
+
+def signing_key(dry_run):
+    """The private key, checked against src/trusted_keys.h. None on a --dry-run without one."""
+    try:
+        return signing.load_trusted_key(REPO)
+    except signing.SigningError as e:
+        if dry_run and not os.path.isfile(signing.key_path()):
+            print(f"warning: {e}; games.json is not signed, and a real publish refuses")
+            return None
+        raise Refused(str(e))
 
 
 # ---- main ------------------------------------------------------------------------------------------
@@ -303,22 +343,38 @@ def publish(a):
         print(f"warning: live games.json not read ({e}); skipped the live comparison")
         live = None
     check_against_live(doc, live)
+    key = signing_key(a.dry_run)
 
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     text = dumps(doc)
+    sig_out = a.out + signing.SIG_SUFFIX
+    if os.path.exists(sig_out):
+        os.remove(sig_out)   # never leave a .sig of an older games.json beside the new one
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     print(f"wrote {a.out}: launcher {ver}, sha256 {doc['launcher']['sha256']}, "
           f"{doc['launcher']['size']} bytes, {len(doc['games'])} game(s)")
+    keys = signing.trusted_keys(REPO)
+    if key is not None:
+        signing.sign_file(a.out, key)
+        with open(a.out, "rb") as f, open(sig_out, "rb") as g:
+            if not signing.verify_bytes(f.read(), g.read(), keys):
+                raise Refused(f"{sig_out} does not verify against {signing.TRUSTED_KEYS_H}")
+        print(f"signed {sig_out} with {signing.public_hex(key)}")
     if a.dry_run:
         print("dry run: nothing uploaded")
         return
 
+    check_sig_route()
     run(["ssh", "-o", "ConnectTimeout=15", HOST, f"mkdir -p {REMOTE}/launcher"])
     remote_put(a.exe, f"launcher/{EXE_NAME}", doc["launcher"]["sha256"])
-    # games.json LAST: a launcher reading it mid-publish must never be sent to bytes that are not up yet.
+    # The signature, then games.json LAST: a launcher reading mid-publish must never be sent to bytes that
+    # are not up yet. Between the two moves a launcher sees the new .sig beside the old games.json, refuses
+    # it and starts its installed version once -- the safe way round.
+    with open(sig_out, "rb") as f:
+        remote_put(sig_out, "games.json.sig", hashlib.sha256(f.read()).hexdigest())
     remote_put(a.out, "games.json", hashlib.sha256(text.encode("utf-8")).hexdigest())
-    verify_live(doc)
+    verify_live(doc, keys)
     print("PUBLISHED", f"{URL}/games.json")
 
 
