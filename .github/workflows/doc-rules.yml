@@ -38,4 +38,7 @@ jobs:
           python3 tools/issue_forms_check.py
       - name: tools/publish.py unit tests
         # SHIP_CMD's tests are plain Python (no build needed), so they run here; ctest runs them too.
-        run: python3 -m unittest discover -s tests -p 'test_*.py'
+        # tools/signing.py needs `cryptography`; install it when the runner lacks it, so the signing tests run.
+        run: |
+          python3 -c 'import cryptography' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-cryptography; }
+          python3 -m unittest discover -s tests -p 'test_*.py'

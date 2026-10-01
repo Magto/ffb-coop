@@ -2,8 +2,11 @@
 // against a fake server in memory and a real temporary folder. No network.
 //
 // Fixture hashes come from ffb::sha256_hex, which test_sha256 checks against the
-// FIPS vectors; the file contents themselves are made up here.
+// FIPS vectors; the file contents themselves are made up here. The manifest's
+// .sig is made with RFC 8032's test key (ffb_sign_test.h), the one key these
+// runs trust (#21).
 #include "ffb_test.h"
+#include "ffb_sign_test.h"
 #include "net.h"
 #include "package.h"
 
@@ -22,8 +25,12 @@ namespace {
 const std::string kManifestUrl = "https://example.test/update/manifest.json";
 const std::string kBase        = "https://example.test/update/";
 
-// Serves whatever the test put in `pages`; anything else is a 404. Records every
-// URL asked for, so a test can see what was (not) downloaded.
+const std::string kSigUrl      = kManifestUrl + ".sig";
+
+// Serves whatever the test put in `pages`; anything else is a 404 -- except the
+// manifest's .sig, which unless a test sets its own page is the valid signature
+// of whatever manifest is served at that moment, as a correct server sends.
+// Records every URL asked for, so a test can see what was (not) downloaded.
 struct FakeNet : ffb::Net {
     struct Page { int status; std::string body; };
     std::map<std::string, Page> pages;
@@ -32,6 +39,13 @@ struct FakeNet : ffb::Net {
     int get(const std::string& url, const ffb::Sink& sink) override {
         asked.push_back(url);
         auto it = pages.find(url);
+        if (it == pages.end() && url == kSigUrl) {
+            const auto m = pages.find(kManifestUrl);
+            if (m == pages.end() || m->second.status != 200) return 404;
+            const std::string sig = ffb_test::sign(m->second.body);
+            sink(sig.data(), sig.size());
+            return 200;
+        }
         if (it == pages.end()) return 404;
         if (it->second.status == 200) {
             // In two pieces, the way a real transfer arrives.
@@ -45,9 +59,9 @@ struct FakeNet : ffb::Net {
         for (const auto& a : asked) if (a == url) return true;
         return false;
     }
-    std::size_t files_asked() const {   // everything but the manifest
+    std::size_t files_asked() const {   // everything but the manifest and its .sig
         std::size_t n = 0;
-        for (const auto& a : asked) if (a != kManifestUrl) ++n;
+        for (const auto& a : asked) if (a != kManifestUrl && a != kSigUrl) ++n;
         return n;
     }
 };
@@ -119,6 +133,17 @@ bool parses(const std::string& text, std::string* why = nullptr) {
 
 const std::string kSha = std::string(64, 'a');
 
+// Every file under `dir`, path -> bytes: two snapshots equal means nothing in
+// the folder changed, was added or went away.
+std::map<std::string, std::string> snapshot(const fs::path& dir) {
+    std::map<std::string, std::string> m;
+    std::error_code ec;
+    if (!fs::exists(dir, ec)) return m;
+    for (const auto& e : fs::recursive_directory_iterator(dir))
+        m[e.path().u8string()] = e.is_regular_file() ? read_file(e.path()) : std::string("<dir>");
+    return m;
+}
+
 }  // namespace
 
 int main() {
@@ -189,7 +214,7 @@ int main() {
     {
         Sandbox sb("fresh");
         FakeNet net = serving({kLoader, kDll, kSwf});
-        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", net, nullptr);
+        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", net, nullptr, ffb_test::test_keys());
         CHECK(r.outcome == ffb::PackageOutcome::Current);
         CHECK(r.version == "76.0.0");
         CHECK(r.updated.size() == 3);
@@ -201,7 +226,7 @@ int main() {
 
         std::puts("already up to date: a second run downloads nothing");
         FakeNet again = serving({kLoader, kDll, kSwf});
-        const ffb::PackageResult r2 = ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", again, nullptr);
+        const ffb::PackageResult r2 = ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", again, nullptr, ffb_test::test_keys());
         CHECK(r2.outcome == ffb::PackageOutcome::Current);
         CHECK(r2.updated.empty());
         CHECK(again.files_asked() == 0);
@@ -220,7 +245,7 @@ int main() {
         std::string upper = lower;
         for (char& c : upper) if (c >= 'a' && c <= 'f') c = (char)(c - 'a' + 'A');
         text.replace(text.find(lower), lower.size(), upper);
-        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr);
+        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys());
         CHECK(r.outcome == ffb::PackageOutcome::Current);
         CHECK(r.updated.size() == 1 && r.updated[0] == kDll.name);
         CHECK(net.files_asked() == 1);
@@ -239,7 +264,7 @@ int main() {
         std::string forged = kDll.content;
         forged[0] = 'X';
         net.pages[kBase + kDll.name].body = forged;
-        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr);
+        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys());
         CHECK(r.outcome == ffb::PackageOutcome::Failed);
         CHECK(r.reason.find(kDll.name) != std::string::npos);
         CHECK(r.reason.find("sha256") != std::string::npos);
@@ -257,7 +282,7 @@ int main() {
             write_file(sb.pkg / kDll.name, "dll v75");
             FakeNet net = serving({kDll});
             net.pages[kBase + kDll.name].body = body;
-            const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr);
+            const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys());
             CHECK(r.outcome == ffb::PackageOutcome::Failed);
             CHECK(read_file(sb.pkg / kDll.name) == "dll v75");
             CHECK(no_staged_files(sb.pkg));
@@ -273,7 +298,7 @@ int main() {
                                                 file_json(kDll.name, kDll.content.size(), ffb::sha256_hex(kDll.content), true) + "," +
                                                 file_json(bad, 4, ffb::sha256_hex("evil"), true) + "]}"};
             net.pages[kBase + kDll.name] = {200, kDll.content};
-            const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr);
+            const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys());
             CHECK(r.outcome == ffb::PackageOutcome::Invalid);
             CHECK(net.files_asked() == 0);
             CHECK(!fs::exists(sb.pkg));             // not even the package folder
@@ -286,7 +311,7 @@ int main() {
         Sandbox sb("optmissing");
         FakeNet net = serving({kLoader, kDll, kSwf});
         net.pages.erase(kBase + kSwf.name);   // 404
-        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", net, nullptr);
+        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", net, nullptr, ffb_test::test_keys());
         CHECK(r.outcome == ffb::PackageOutcome::Current);
         CHECK(r.warnings.size() == 1 && r.warnings[0].find(kSwf.name) != std::string::npos);
         CHECK(read_file(sb.pkg / kLoader.name) == kLoader.content);
@@ -304,7 +329,7 @@ int main() {
         std::string forged = kSwf.content;
         forged[0] = 'X';
         net.pages[kBase + kSwf.name].body = forged;
-        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr);
+        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys());
         CHECK(r.outcome == ffb::PackageOutcome::Current);
         CHECK(r.warnings.size() == 1);
         CHECK(read_file(sb.pkg / kSwf.name) == "swf v75");
@@ -316,7 +341,7 @@ int main() {
         Sandbox sb("reqmissing");
         FakeNet net = serving({kLoader, kDll, kSwf});
         net.pages.erase(kBase + kDll.name);
-        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr);
+        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys());
         CHECK(r.outcome == ffb::PackageOutcome::Failed);
         CHECK(r.reason.find(kDll.name) != std::string::npos);
         CHECK(!fs::exists(sb.pkg / kLoader.name));
@@ -331,7 +356,7 @@ int main() {
         // on Windows or POSIX -- the stand-in for a file the game holds open.
         fs::create_directories(sb.pkg / kDll.name / "held");
         FakeNet net = serving({kLoader, kDll});
-        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr);
+        const ffb::PackageResult r = ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys());
         CHECK(r.outcome == ffb::PackageOutcome::Failed);
         CHECK(r.reason.find("could not replace " + kDll.name) != std::string::npos);
         CHECK(fs::is_directory(sb.pkg / kDll.name / "held"));
@@ -344,23 +369,93 @@ int main() {
         Sandbox sb("manifest");
         FakeNet none;   // every URL a 404; a 0 needs its own page
         none.pages[kManifestUrl] = {0, ""};
-        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "", none, nullptr).outcome == ffb::PackageOutcome::Unreachable);
+        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "", none, nullptr, ffb_test::test_keys()).outcome == ffb::PackageOutcome::Unreachable);
         FakeNet missing;
-        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "", missing, nullptr).outcome == ffb::PackageOutcome::Unreachable);
+        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "", missing, nullptr, ffb_test::test_keys()).outcome == ffb::PackageOutcome::Unreachable);
         FakeNet garbage;
         garbage.pages[kManifestUrl] = {200, "<html>"};
-        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "", garbage, nullptr).outcome == ffb::PackageOutcome::Invalid);
+        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "", garbage, nullptr, ffb_test::test_keys()).outcome == ffb::PackageOutcome::Invalid);
         FakeNet plain_http = serving({kDll});
-        CHECK(ffb::update_package(sb.dir(), "http://example.test/update/manifest.json", "", plain_http, nullptr).outcome ==
+        CHECK(ffb::update_package(sb.dir(), "http://example.test/update/manifest.json", "", plain_http, nullptr, ffb_test::test_keys()).outcome ==
               ffb::PackageOutcome::Invalid);
         CHECK(plain_http.asked.empty());
         FakeNet no_launcher = serving({kDll});
-        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", no_launcher, nullptr).outcome ==
+        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", no_launcher, nullptr, ffb_test::test_keys()).outcome ==
               ffb::PackageOutcome::Invalid);
         FakeNet optional_launcher = serving({{"mewcoop_loader.exe", "x", false}});
-        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", optional_launcher, nullptr).outcome ==
+        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", optional_launcher, nullptr, ffb_test::test_keys()).outcome ==
               ffb::PackageOutcome::Invalid);
         CHECK(no_launcher.files_asked() == 0 && optional_launcher.files_asked() == 0);
+    }
+
+    std::puts("manifest signature (#21): missing, empty, wrong key, tampered -- refused, nothing downloaded, "
+              "no file in the folder changes");
+    {
+        // The attack the signature stops: a server that swaps mewcoop.dll and the
+        // manifest's sha256 for it. The forged manifest is valid in every other
+        // way, so only the signature can refuse it.
+        const F forged_dll{kDll.name, std::string(3000, 'E') + "evil", true};
+        const std::string genuine = manifest_for({kLoader, kDll});
+        const std::string forged  = manifest_for({kLoader, forged_dll});
+        struct Case { const char* what; int sig_status; std::string sig; std::string served; const char* reason; };
+        const Case cases[] = {
+            {"no .sig (404)", 404, "", forged, "the manifest is not signed: " },
+            {"empty .sig", 200, "", forged, "the manifest: the signature is not 128 hex digits"},
+            {"signed by a key nobody trusts", 200,
+             ffb_test::sign(forged, ffb_test::kOtherSeedHex, ffb_test::kOtherPublicHex), forged,
+             "the manifest: the signature does not match"},
+            {"the genuine manifest's .sig on tampered bytes", 200, ffb_test::sign(genuine), forged,
+             "the manifest: the signature does not match"},
+        };
+        for (const Case& c : cases) {
+            std::printf("  case: %s\n", c.what);
+            Sandbox sb("unsigned");
+            fs::create_directories(sb.pkg);
+            write_file(sb.pkg / kLoader.name, "loader v75");
+            write_file(sb.pkg / kDll.name, "dll v75");
+            const auto before = snapshot(sb.root);
+            FakeNet net = serving({kLoader, forged_dll});
+            net.pages[kManifestUrl] = {200, c.served};
+            net.pages[kSigUrl]      = {c.sig_status, c.sig};
+            const ffb::PackageResult r =
+                ffb::update_package(sb.dir(), kManifestUrl, "mewcoop_loader.exe", net, nullptr, ffb_test::test_keys());
+            CHECK(r.outcome == ffb::PackageOutcome::Unsigned);
+            CHECK(r.reason.rfind(c.reason, 0) == 0);
+            CHECK(net.files_asked() == 0);
+            CHECK(r.updated.empty());
+            CHECK(snapshot(sb.root) == before);
+
+            // A fresh install refused the same way: not even the package folder appears.
+            Sandbox fresh("unsigned-fresh");
+            FakeNet net2 = serving({kLoader, forged_dll});
+            net2.pages[kManifestUrl] = {200, c.served};
+            net2.pages[kSigUrl]      = {c.sig_status, c.sig};
+            CHECK(ffb::update_package(fresh.dir(), kManifestUrl, "", net2, nullptr, ffb_test::test_keys()).outcome ==
+                  ffb::PackageOutcome::Unsigned);
+            CHECK(!fs::exists(fresh.pkg));
+        }
+
+        std::puts("  control: the same forged manifest, validly signed, does install -- only the signature refused it");
+        Sandbox sb("signed-forged");
+        FakeNet net = serving({kLoader, forged_dll});
+        CHECK(ffb::update_package(sb.dir(), kManifestUrl, "", net, nullptr, ffb_test::test_keys()).outcome ==
+              ffb::PackageOutcome::Current);
+        CHECK(read_file(sb.pkg / kDll.name) == forged_dll.content);
+
+        std::puts("  no answer for the .sig: unreachable, nothing downloaded");
+        Sandbox sb0("sig-unreachable");
+        FakeNet net0 = serving({kLoader, kDll});
+        net0.pages[kSigUrl] = {0, ""};
+        CHECK(ffb::update_package(sb0.dir(), kManifestUrl, "", net0, nullptr, ffb_test::test_keys()).outcome ==
+              ffb::PackageOutcome::Unreachable);
+        CHECK(net0.files_asked() == 0);
+        CHECK(!fs::exists(sb0.pkg));
+
+        std::puts("  the compiled-in keys by default: a manifest signed with the test key is refused");
+        Sandbox sb1("default-keys");
+        FakeNet net1 = serving({kLoader, kDll});
+        CHECK(ffb::update_package(sb1.dir(), kManifestUrl, "", net1, nullptr).outcome == ffb::PackageOutcome::Unsigned);
+        CHECK(net1.files_asked() == 0);
     }
 
     return ffb_test_result();

@@ -1,4 +1,6 @@
-"""Unit tests for tools/publish.py: the games.json writer and its refusals. No network, no exe needed.
+"""Unit tests for tools/publish.py and tools/signing.py: the games.json writer, its signature and their
+refusals. No network, no exe needed, and never the real signing key: setUpModule points COOPMODS_SIGNING_KEY at
+RFC 8032's TEST 1 key and makes that the one trusted key.
 
     python -m unittest discover -s tests -p "test_*.py"
 """
@@ -7,8 +9,42 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 import publish  # noqa: E402
+import signing  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# RFC 8032 section 7.1: TEST 1 (the test key) signs the empty message, TEST 2 is a key nobody trusts.
+TEST_SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+TEST_PUB = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+RFC_SIG_EMPTY = ("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b4"
+                 "6bd25bf5f0595bbe24655141438e7a100b")
+OTHER_SEED = bytes.fromhex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb")
+OTHER_PUB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+# The key generated for coopmods on 2026-10-01, as docs/SPEC.md "Signatures" names it.
+COOPMODS_PUB = "43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59"
+
+REAL_TRUSTED_KEYS = signing.trusted_keys
+_module = {}
+
+
+def write_key(path, seed, mode=0o600):
+    with open(path, "wb") as f:
+        f.write(seed)
+    os.chmod(path, mode)
+    return path
+
+
+def setUpModule():
+    _module["tmp"] = tempfile.TemporaryDirectory()
+    key = write_key(os.path.join(_module["tmp"].name, "signing.key"), TEST_SEED)
+    _module["patches"] = [mock.patch.dict(os.environ, {signing.KEY_ENV: key}),
+                          mock.patch.object(signing, "trusted_keys", return_value=[TEST_PUB])]
+    for p in _module["patches"]: p.start()
+
+
+def tearDownModule():
+    for p in _module["patches"]: p.stop()
+    _module["tmp"].cleanup()
 
 
 def load(path):
@@ -205,6 +241,7 @@ class FakeServer:
 
     def fetch(self, url, timeout=20):
         path = {publish.URL + "/games.json": publish.REMOTE + "/games.json",
+                publish.SIG_URL: publish.REMOTE + "/games.json.sig",
                 publish.LAUNCHER_URL: publish.REMOTE + "/launcher/" + publish.EXE_NAME}[url]
         data = self.files.get(path)
         return None if data is None else (b"stale " + data if self.stale else data)
@@ -242,16 +279,20 @@ class Upload(unittest.TestCase):
         self.assertEqual(self.main(), 0)
         s = self.server
         scps = [c for c in s.cmds if c[0] == "scp"]
-        self.assertEqual(len(scps), 2)
+        self.assertEqual(len(scps), 3)   # the exe, games.json.sig, games.json (#21)
         for c in scps:
             self.assertTrue(c[-1].split(":", 1)[1].startswith(publish.REMOTE + "/.upload-"), c)
         exe_mv = s.index(lambda c: c[-1].startswith("mv -f ") and c[-1].endswith(f"/launcher/{publish.EXE_NAME}'"))
+        sig_mv = s.index(lambda c: c[-1].startswith("mv -f ") and c[-1].endswith("/games.json.sig'"))
         games_scp = s.index(lambda c: c[0] == "scp" and c[-2] == self.out)
         games_mv = s.index(lambda c: c[-1].startswith("mv -f ") and c[-1].endswith("/games.json'"))
         self.assertLess(exe_mv, games_scp)
+        self.assertLess(sig_mv, games_mv)
         self.assertLess(games_scp, games_mv)
         self.assertEqual(s.files[publish.REMOTE + "/launcher/" + publish.EXE_NAME], self.data)
         self.assertEqual(json.loads(s.files[publish.REMOTE + "/games.json"]), load(self.out))
+        self.assertTrue(signing.verify_bytes(s.files[publish.REMOTE + "/games.json"],
+                                             s.files[publish.REMOTE + "/games.json.sig"], [TEST_PUB]))
         self.assertEqual([p for p in s.files if ".upload-" in p], [])
 
     def test_server_sha256_disagreeing_refused_and_nothing_moved(self):
@@ -266,15 +307,21 @@ class Upload(unittest.TestCase):
 
     def test_verify_live_refuses_other_bytes(self):
         doc = publish.build_games_json(copy.deepcopy(GAMES_IN), self.data)
-        good = {publish.URL + "/games.json": dumps_bytes(doc), publish.LAUNCHER_URL: self.data}
+        key = signing.load_private_key()
+        sig = signing.sign_bytes(dumps_bytes(doc), key).encode()
+        good = {publish.URL + "/games.json": dumps_bytes(doc), publish.LAUNCHER_URL: self.data, publish.SIG_URL: sig}
         publish.fetch.side_effect = lambda url, timeout=20: good[url]
-        publish.verify_live(doc)   # the right bytes pass
+        publish.verify_live(doc, [TEST_PUB])   # the right bytes pass
+        other_key_sig = signing.sign_bytes(dumps_bytes(doc), signing._ed25519()[0].Ed25519PrivateKey
+                                           .from_private_bytes(OTHER_SEED)).encode()
         for url, other in ((publish.LAUNCHER_URL, self.data + b"x"), (publish.LAUNCHER_URL, None),
-                           (publish.URL + "/games.json", b'{"schema": 1}'), (publish.URL + "/games.json", None)):
+                           (publish.URL + "/games.json", b'{"schema": 1}'), (publish.URL + "/games.json", None),
+                           (publish.SIG_URL, None), (publish.SIG_URL, other_key_sig),
+                           (publish.SIG_URL, publish.PLACEHOLDER)):
             answers = dict(good, **{url: other})
             publish.fetch.side_effect = lambda u, timeout=20, a=answers: a[u]
             with self.subTest(url=url, other=other), self.assertRaises(publish.Refused):
-                publish.verify_live(doc)
+                publish.verify_live(doc, [TEST_PUB])
 
     def test_live_games_json_unreadable_refused_before_upload(self):
         publish.fetch_live_games.side_effect = OSError("no route to host")
@@ -300,6 +347,7 @@ class Gates(unittest.TestCase):
         self.patches = [mock.patch.object(publish, "REPO", self.tmp.name),
                         mock.patch.object(publish, "fetch_live_games", return_value=None),
                         mock.patch.object(publish, "fetch", side_effect=AssertionError("fetched")),
+                        mock.patch.object(publish, "check_sig_route"),   # its own tests are in Signing
                         mock.patch.object(publish, "run", self.run)]
         for p in self.patches: p.start()
 
@@ -339,6 +387,123 @@ class Gates(unittest.TestCase):
         self.run.side_effect = publish.Refused("stop at the upload")
         self.assertEqual(self.main(), 1)
         self.run.assert_called()
+
+
+class Signing(unittest.TestCase):
+    """tools/signing.py and the signing step of publish (#21): the key it reads, what it refuses, and the
+    .sig it writes. Expected signatures are RFC 8032's, not output of this code."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.exe = os.path.join(self.tmp.name, "FFB Co-op.exe")
+        self.data = fake_exe((1, 0, 0, 0))
+        with open(self.exe, "wb") as f:
+            f.write(self.data)
+        self.out = os.path.join(self.tmp.name, "games.json")
+        self.server = FakeServer()
+        self.patches = [mock.patch.object(publish, "run_gates"),
+                        mock.patch.object(publish, "fetch_live_games", return_value=None),
+                        mock.patch.object(publish, "run", side_effect=self.server.run),
+                        mock.patch.object(publish, "fetch", side_effect=self.server.fetch)]
+        for p in self.patches: p.start()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.tmp.cleanup()
+
+    def key_env(self, path):
+        return mock.patch.dict(os.environ, {signing.KEY_ENV: path})
+
+    def assert_nothing_uploaded(self):
+        self.assertEqual([c for c in self.server.cmds if c[0] in ("scp", "ssh")], [])
+
+    def test_rfc8032_vector(self):
+        key = signing.load_private_key()
+        self.assertEqual(signing.public_hex(key), TEST_PUB)
+        self.assertEqual(signing.sign_bytes(b"", key), RFC_SIG_EMPTY + "\n")
+
+    def test_valid_missing_wrong_key_tampered(self):
+        data = dumps_bytes(publish.build_games_json(copy.deepcopy(GAMES_IN), self.data))
+        good = signing.sign_bytes(data, signing.load_private_key())
+        other = signing.sign_bytes(data, signing._ed25519()[0].Ed25519PrivateKey.from_private_bytes(OTHER_SEED))
+        self.assertTrue(signing.verify_bytes(data, good, [TEST_PUB]))                 # valid
+        self.assertTrue(signing.verify_bytes(data, good.encode(), [TEST_PUB]))
+        self.assertFalse(signing.verify_bytes(data, "", [TEST_PUB]))                  # missing
+        self.assertFalse(signing.verify_bytes(data, other, [TEST_PUB]))               # wrong key
+        self.assertTrue(signing.verify_bytes(data, other, [TEST_PUB, OTHER_PUB]))     # ... until it is trusted
+        for at in (0, len(data) // 2, len(data) - 1):                                 # tampered byte
+            t = bytearray(data)
+            t[at] ^= 1
+            self.assertFalse(signing.verify_bytes(bytes(t), good, [TEST_PUB]), at)
+        self.assertFalse(signing.verify_bytes(data, good[:-2], [TEST_PUB]))
+        self.assertFalse(signing.verify_bytes(data, publish.PLACEHOLDER, [TEST_PUB]))
+
+    def test_real_trusted_keys_file(self):
+        self.assertEqual(REAL_TRUSTED_KEYS(REPO), [COOPMODS_PUB])
+
+    def test_dry_run_signs_and_the_sig_verifies(self):
+        self.assertEqual(publish.main(["--exe", self.exe, "--out", self.out, "--dry-run"]), 0)
+        with open(self.out, "rb") as f, open(self.out + ".sig", encoding="ascii") as g:
+            data, sig = f.read(), g.read()
+        self.assertRegex(sig, r"^[0-9a-f]{128}\n$")
+        self.assertTrue(signing.verify_bytes(data, sig, [TEST_PUB]))
+        self.assert_nothing_uploaded()
+
+    def test_no_key_refused_and_nothing_uploaded(self):
+        with self.key_env(os.path.join(self.tmp.name, "absent.key")):
+            self.assertEqual(publish.main(["--exe", self.exe, "--out", self.out]), 1)
+        self.assert_nothing_uploaded()
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_no_key_on_dry_run_warns_and_writes_no_sig(self):
+        with open(self.out + ".sig", "w") as f:
+            f.write("stale")
+        with self.key_env(os.path.join(self.tmp.name, "absent.key")):
+            self.assertEqual(publish.main(["--exe", self.exe, "--out", self.out, "--dry-run"]), 0)
+        self.assertTrue(os.path.exists(self.out))
+        self.assertFalse(os.path.exists(self.out + ".sig"))   # the stale one is gone, not left beside it
+
+    def test_untrusted_key_refused_even_on_dry_run(self):
+        other = write_key(os.path.join(self.tmp.name, "other.key"), OTHER_SEED)
+        with self.key_env(other):
+            self.assertEqual(publish.main(["--exe", self.exe, "--out", self.out, "--dry-run"]), 1)
+            self.assertEqual(publish.main(["--exe", self.exe, "--out", self.out]), 1)
+        self.assert_nothing_uploaded()
+
+    def test_bad_key_files_refused(self):
+        short = write_key(os.path.join(self.tmp.name, "short.key"), TEST_SEED[:31])
+        hexed = write_key(os.path.join(self.tmp.name, "hex.key"), TEST_SEED.hex().encode())
+        for path in (short, hexed):
+            with self.subTest(path=path), self.assertRaises(signing.SigningError):
+                signing.load_private_key(path)
+        if os.name != "nt":
+            loose = write_key(os.path.join(self.tmp.name, "loose.key"), TEST_SEED, mode=0o644)
+            with self.assertRaises(signing.SigningError):
+                signing.load_private_key(loose)
+
+    def test_key_path_env_override(self):
+        with self.key_env("/somewhere/k"):
+            self.assertEqual(signing.key_path(), "/somewhere/k")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(signing.key_path().replace("\\", "/").endswith("/.config/coopmods/signing.key"))
+
+    def test_sig_not_routed_refused_before_upload(self):
+        publish.fetch.side_effect = lambda url, timeout=20: (
+            publish.PLACEHOLDER if url == publish.SIG_URL else self.server.fetch(url, timeout))
+        self.assertEqual(publish.main(["--exe", self.exe, "--out", self.out]), 1)
+        self.assert_nothing_uploaded()
+
+    def test_signing_cli_sign_and_verify(self):
+        f = os.path.join(self.tmp.name, "manifest.json")
+        with open(f, "wb") as fh:
+            fh.write(b'{"version": "76.0.0", "files": []}\n')
+        self.assertEqual(signing.main(["sign", f]), 0)
+        self.assertEqual(signing.main(["verify", f]), 0)
+        with open(f, "ab") as fh:
+            fh.write(b" ")
+        self.assertEqual(signing.main(["verify", f]), 1)
+        os.remove(f + ".sig")
+        self.assertEqual(signing.main(["verify", f]), 1)
 
 
 if __name__ == "__main__":

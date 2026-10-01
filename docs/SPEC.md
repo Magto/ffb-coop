@@ -26,7 +26,9 @@ soon. One download, `FFB Co-op.exe`, works out which game it sits next to and fe
 The same exe serves every game. There is no Steam lookup and no game menu: the folder decides.
 
 1. **Fetch `https://coopmods.com/games.json`** — once per start. It carries both the launcher's own
-   update block and the list of games.
+   update block and the list of games. Its signature, `games.json.sig`, is fetched beside it and
+   checked before a byte of games.json is read ([Signatures](#signatures), #21); a missing or wrong
+   signature is handled like an invalid file, so there is no self-update.
 2. **Self-update.** If the `launcher.version` in games.json is newer than the running exe's own
    version resource, download `launcher.url`, check its size and sha256 against the `launcher`
    block, replace the running exe and restart it with the same command line. This ports the
@@ -48,7 +50,8 @@ The same exe serves every game. There is no Steam lookup and no game menu: the f
    order. Its working directory is the package folder **(spec default)**. Then FFB Co-op.exe exits
    without waiting for it.
 
-If step 1 fails, the launcher follows [Offline](#offline) instead of steps 2–4.
+If step 1 fails — no answer, or a games.json that is unsigned, badly signed or invalid — the launcher
+follows [Offline](#offline) instead of steps 2–4.
 
 `FFB Co-op.exe --version`, with `--version` as its only argument, prints the version line and exits
 0 before step 1: no network, nothing read or written in the folder. With any other argument beside
@@ -135,7 +138,8 @@ uses (`sibling_path`), so `…/update/manifest.json` gives `…/update/mewcoop.d
 | `files[].sha256` | Required. Exactly 64 hex digits, compared without regard to case. |
 | `files[].required` | Optional boolean, default `true`. |
 
-A manifest that breaks any rule is rejected whole, and nothing is downloaded from it.
+A manifest that breaks any rule is rejected whole, and nothing is downloaded from it. Before any of
+those rules, its signature `<manifest URL>.sig` must check out ([Signatures](#signatures)).
 
 ## Package download
 
@@ -159,10 +163,117 @@ A manifest that breaks any rule is rejected whole, and nothing is downloaded fro
    the installed package with a one-line warning if every required file is present, and otherwise
    shows the error and waits for a key **(spec default)**.
 
-A good games.json is also saved as `FFB Co-op\games.json` once the game is found, so a later
+A good (signed and valid) games.json is also saved as `FFB Co-op\games.json` once the game is found, so a later
 offline start knows which exe names to look for **(spec default)**. After a good update the game's
 manifest is kept the same way, as `FFB Co-op\manifest.json`, so an offline start knows every
 required file of the package (#6).
+
+## Signatures
+
+Added by #21. The sha256 values in games.json and in a manifest catch a broken download, not a
+hostile server: whoever controls coopmods.com, its web server or its DNS could publish new bytes and
+a matching hash. So both files are signed offline, with a key that is in no repo and not on the
+server, and FFB Co-op.exe checks the signature before it reads the file. games.json carries the
+launcher's own sha256, and the manifest the sha256 of every package file, so the signatures cover the
+exe and the package too.
+
+### Format
+
+- **Algorithm:** ed25519 (RFC 8032), raw: no wrapper format, no key id.
+- **Signature file:** `<file>.sig`, served beside the file — `https://coopmods.com/games.json.sig`,
+  and for a manifest its URL with `.sig` appended (a query or fragment dropped first):
+  `https://mewgenics.coopmods.com/update/manifest.json.sig`.
+- **Content:** the 64-byte signature over the **exact bytes** of the file as served, written as 128
+  hex digits (the publish side writes lowercase and a newline; the launcher accepts either case and
+  trailing whitespace, nothing else).
+- **The signed file is unchanged.** games.json and the manifest keep their format, so a launcher or
+  loader that does not check signatures reads them as before.
+- The same format signs mewgenics-coop's update manifest (Magto/mewgenics-coop#553), with the same
+  key.
+
+### What the launcher does
+
+| Case | games.json | A game's manifest |
+|---|---|---|
+| `.sig` signs the file under a trusted key | read and acted on as today | read and acted on as today |
+| `.sig` missing (any HTTP status but 200), not 128 hex digits, signed by another key, or the file changed by even one byte | refused: one warning line, **no self-update**, the installed version starts ([Offline](#offline)) | refused: one warning line, nothing downloaded, **no file in the game folder changes** (not even the kept games.json), the installed version starts |
+| `.sig` gets no answer at all (transport failure) | as unreachable | as unreachable |
+
+The warning reads `coopmods.com sent a file without a valid signature (<reason>) -- starting the
+installed version.`, where `<reason>` is one of `games.json is not signed: <sig URL> said HTTP <n>`,
+`games.json: the signature is not 128 hex digits`, `games.json: the signature does not match`, or the
+same three with `the manifest` for `games.json`. With nothing installed it is the not-installed
+screen with that prefix ([Offline](#offline)).
+
+The copies kept in `FFB Co-op\` for offline starts are written only after their signature checked,
+and are not checked again: they are on the player's own disk.
+
+### Where the keys live
+
+- **Public key:** compiled into FFB Co-op.exe from `src/trusted_keys.h`, one 64-hex-digit key per
+  line. A file signed by **any** key in that list is accepted. Today it holds one key, made
+  2026-10-01: `43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59`.
+- **Private key:** 32 raw bytes (the ed25519 seed) in `~/.config/coopmods/signing.key` on
+  Tubal-Cain's WSL side, mode 600 in a mode-700 folder, with an offline backup in Martin's password
+  manager (Martin's decision, 2026-10-01: "yes, I like your suggestion where it should live"). It is
+  in no repo and never on the server. `COOPMODS_SIGNING_KEY` names another path (for example to run
+  the publish from Windows Python).
+- **Signing:** `tools/signing.py` (needs Python `cryptography`). `tools/publish.py` signs games.json
+  with it and refuses to publish without the key, or with a key whose public key is not in
+  `src/trusted_keys.h`. `python tools/signing.py sign <file>` writes `<file>.sig` for anything else,
+  such as a manifest; `verify` checks one.
+
+### Rotation
+
+1. Make the new key pair. Add its public key to `src/trusted_keys.h` **beside** the old one, and
+   publish that launcher, signed with the **old** key. Every launcher in the field updates to it and
+   now trusts both.
+2. Wait until the launchers that matter have updated (the old key keeps signing meanwhile).
+3. Switch `~/.config/coopmods/signing.key` to the new key; re-sign games.json and every manifest.
+4. In a later launcher, drop the old key from `src/trusted_keys.h`.
+
+A launcher only ever learns a key by self-updating, so a launcher that skips step 1 (too old, never
+updated) refuses everything signed by the new key from step 3 on and keeps starting its installed
+version; it needs a fresh download of FFB Co-op.exe. If the private key leaks, the attacker can sign
+anything the launcher trusts until step 4 ships, so a leak means doing all four steps at once and
+telling players to download FFB Co-op.exe again.
+
+### Transition
+
+**A launcher without the check is already in the field.** FFB Co-op.exe 0.1.0, built before #21,
+has been served from coopmods.com since 2026-09-25: `games.json` advertises launcher 0.1.0
+(586752 bytes) and `launcher/FFB%20Co-op.exe` answers it (observed by the #22 review, 2026-10-01
+23:25). Players holding it must reach the first signing version by self-update, and this is how:
+
+- **The first signing version carries a higher number than 0.1.0.** A launcher compares versions
+  only, so a signing build still numbered 0.1.0 would never reach a 0.1.0 player. The number in
+  `src/ffb_version.h` is raised at publish, not in #22; `tools/publish.py` stops a mistake
+  mechanically, because its comparison with the live games.json refuses a lower version and refuses
+  the same version with different bytes ("bump the version").
+- **0.1.0 never asks for a signature.** games.json keeps its format and the signature is a separate
+  file, so 0.1.0 reads a signed games.json exactly as an unsigned one.
+
+The release order, and what a 0.1.0 launcher and a signing launcher see at each step:
+
+| Step | A 0.1.0 launcher | A signing launcher |
+|---|---|---|
+| 1. The coopmods.com site block serves `/games.json.sig` without a cookie (`site/README.md`). Until it does, `tools/publish.py` refuses to upload. | No change: it never fetches the `.sig`. | (none exists yet) |
+| 2. mewgenics-coop publishes `manifest.json.sig` beside its manifest, signed with this key (Magto/mewgenics-coop#553). | No change: it never fetches the `.sig`. | (none exists yet) |
+| 3. `tools/publish.py` publishes the signing FFB Co-op.exe under a higher number: the exe, then `games.json.sig`, then games.json. | On its next start it reads the new games.json, sees the higher version, downloads the exe, checks its size and sha256, replaces itself and restarts as the signing version. Before games.json is renamed it still sees the old games.json and stays as it is, to update on the next start. | From then on: games.json and the Mewgenics manifest are checked and accepted, and the flow is as before. |
+
+If step 3 ran before step 2, the 0.1.0 launchers would still update in step 3, but the signing
+version they became would refuse the unsigned Mewgenics manifest. An installed player would get the
+old mod with the warning on every start, and a new player the not-installed screen, until step 2.
+Step 2 therefore comes first.
+
+**The Mewgenics loader** (`mewcoop_loader.exe`) reads the same manifest and ignores the `.sig`
+beside it until mewgenics-coop#553 teaches it to check.
+
+### Not covered
+
+- **Replaying an older signed file.** A server can serve an older games.json or manifest with its
+  genuine signature. Self-update never goes to a lower version, but an older package would install.
+- **The launcher's own exe** is not Authenticode-signed (SmartScreen); that is a separate issue.
 
 ## Network file-name rule
 
@@ -220,6 +331,8 @@ Martin's pick: "Run installed, warn (Recommended)".
 - **games.json or the manifest invalid** — the same two cases, with
   `coopmods.com sent a file this version cannot read (<reason>)` in place of `Could not reach
   coopmods.com`.
+- **games.json or the manifest unsigned or badly signed** — the same two cases, with
+  `coopmods.com sent a file without a valid signature (<reason>)` ([Signatures](#signatures)).
 
 ## The Mewgenics package
 
@@ -247,8 +360,9 @@ known yet, and FFB Co-op.exe assumes neither.
 | Host | the server `coopmods.com` resolves to; it serves a placeholder at the root |
 | Web server | Caddy, in a container named `caddy` |
 | `https://coopmods.com/games.json` | games.json — served **without** the cookie |
+| `https://coopmods.com/games.json.sig` | its signature ([Signatures](#signatures)) — served **without** the cookie |
 | `https://coopmods.com/launcher/FFB%20Co-op.exe` | the launcher's own update — served **without** the cookie |
-| `https://mewgenics.coopmods.com/update/manifest.json` and its sibling files | the Mewgenics package, already published by mewgenics-coop, already cookie-free |
+| `https://mewgenics.coopmods.com/update/manifest.json` and its sibling files | the Mewgenics package, already published by mewgenics-coop, already cookie-free; `manifest.json.sig` beside it from mewgenics-coop#553 |
 
 The Caddyfile is a single-file bind mount: **never `sed -i` it** (that replaces the inode and the
 container keeps the old file). Edit it in place — open read/write, write, truncate — then
@@ -267,7 +381,8 @@ The publish script and the coopmods.com site block are #7.
 
 **Unit** (tier `code`): the folder finder and the update code as plain functions — an empty folder,
 one match, two matches, a malformed games.json, a package file with a bad sha256, a network file
-name with a path in it. Every validation rule above is a case.
+name with a path in it. Every validation rule above is a case. The signature check: valid, missing,
+wrong key and a tampered byte, on games.json and on a manifest (#21).
 
 **By hand** (tier `manual`, Windows): in the Mewgenics folder it downloads the package and the game
 starts with co-op; in an empty folder the "Could not find" message stays until a key press; offline

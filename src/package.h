@@ -10,8 +10,9 @@
 // The shape of a run, ported from Magto/mewgenics-coop loader/mewcoop_update.cpp
 // (MIT, Copyright (c) 2026 SanTertrust; Copyright (c) 2026 Martin Strålenhielm for
 // the Mewgenics Coop fork), with the spec's differences:
-//   1. Fetch and validate the manifest. One broken rule rejects it whole and
-//      nothing is downloaded.
+//   1. Fetch the manifest and its signature (<manifest URL>.sig, signature.h);
+//      a missing or wrong signature rejects it before it is read. Then validate
+//      it: one broken rule rejects it whole and nothing is downloaded.
 //   2. Hash every file already in the package folder; a file whose sha256
 //      matches is left alone. The manifest's version decides nothing.
 //   3. Download each file that differs to <name>.new, checking size and sha256 as
@@ -29,6 +30,7 @@
 #include <vector>
 
 #include "net.h"
+#include "signature.h"
 
 namespace ffb {
 
@@ -56,6 +58,8 @@ enum class PackageOutcome {
     Current,      // every required file in the folder matches the manifest now
     Unreachable,  // the manifest could not be fetched (no network, HTTP error)
     Invalid,      // the manifest broke a rule; nothing was downloaded
+    Unsigned,     // the manifest's signature is missing or wrong; it was not even
+                  // read, and nothing was downloaded
     Failed,       // a required file failed to download, check or replace
 };
 
@@ -75,10 +79,14 @@ struct PackageResult {
 // Brings `package_dir` (UTF-8; created when missing) up to date with the
 // manifest at `manifest_url`. `required_launcher`, when not empty, must be one
 // of the manifest's files and marked required (docs/SPEC.md, games[].launcher),
-// or the manifest is Invalid. Progress and warnings are printed to `log`, one
-// line each; nullptr is silent. Nothing is written outside `package_dir`.
+// or the manifest is Invalid. The manifest must be signed by one of `keys`
+// (signature.h), or it is Unsigned and nothing in `package_dir` changes; a
+// signature that cannot be fetched at all is Unreachable. Progress and warnings
+// are printed to `log`, one line each; nullptr is silent. Nothing is written
+// outside `package_dir`.
 PackageResult update_package(const std::string& package_dir, const std::string& manifest_url,
                              const std::string& required_launcher, Net& net,
-                             std::FILE* log = stdout);
+                             std::FILE* log = stdout,
+                             const std::vector<PublicKey>& keys = trusted_keys());
 
 }  // namespace ffb

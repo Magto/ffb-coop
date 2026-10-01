@@ -52,15 +52,25 @@ add_test(NAME test_finder COMMAND test_finder)
 add_executable(test_sha256 test_sha256.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
 target_include_directories(test_sha256 PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME test_sha256 COMMAND test_sha256)
-add_executable(test_package test_package.cpp ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp)
+add_executable(test_package test_package.cpp ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
+    ${CMAKE_SOURCE_DIR}/src/signature.cpp ${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c)
 target_include_directories(test_package PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 add_test(NAME test_package COMMAND test_package)
+
+# #21: the ed25519 signature check -- RFC 8032 vectors, the .sig format, and the
+# valid / missing / wrong-key / tampered-byte cases on a games.json and a manifest.
+# tests/ffb_sign_test.h signs fixtures with the RFC 8032 test key, never the real one.
+add_executable(test_signature test_signature.cpp ${CMAKE_SOURCE_DIR}/src/signature.cpp ${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c)
+target_include_directories(test_signature PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_options(test_signature PRIVATE /W3)
+add_test(NAME test_signature COMMAND test_signature)
 
 # #6: the start flow over a fake network, self-update, process start and key press,
 # against a real temporary game folder.
 add_executable(test_app test_app.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
     ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
-    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp
+    ${CMAKE_SOURCE_DIR}/src/signature.cpp ${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c)
 target_include_directories(test_app PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(test_app PRIVATE NOMINMAX)
 add_test(NAME test_app COMMAND test_app)
@@ -68,7 +78,8 @@ add_test(NAME test_app COMMAND test_app)
 # #6: the command line handed to the package launcher -- quoting and passthrough.
 add_executable(test_cmdline test_cmdline.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
     ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
-    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp
+    ${CMAKE_SOURCE_DIR}/src/signature.cpp ${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c)
 target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(test_cmdline PRIVATE NOMINMAX)
 add_test(NAME test_cmdline COMMAND test_cmdline)
