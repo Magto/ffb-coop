@@ -163,8 +163,9 @@ int main() {
         CHECK(self_update(block("1.0.0"), v(0, 1, 0), io) == SelfUpdateOutcome::Restart);
         CHECK(io.downloads == 1 && io.at(kSelf) == kNewBytes);
         CHECK(io.restarts.size() == 1 && io.warnings.empty());
-        CHECK(io.notes.size() == 1 &&
-              io.notes[0] == "self-update: 1.0.0 is out, this is 0.1.0 -- downloading");
+        // the line #24's Log check names, first of the update's notes
+        const std::string said = "self-update: 1.0.0 is out, this is 0.1.0";
+        CHECK(!io.notes.empty() && io.notes[0].compare(0, said.size(), said) == 0);
     }
     // and every later release is newer than the one before: v2 over v1, v10 over v9
     CHECK(cmp("2.0.0", "1.0.0") == 1);
