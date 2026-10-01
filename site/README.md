@@ -67,9 +67,12 @@ serves Matrix, mewgenics.coopmods.com, patreon, logs and other sites.
 ## Publishing
 
 ```
-python tools/publish.py --dry-run          # check everything, write site/games.json, upload nothing
-python tools/publish.py [--version X.Y.Z]  # the real thing (SHIP_CMD)
+python tools/publish.py --release N --dry-run   # check everything, write site/games.json, upload nothing
+python tools/publish.py --release N             # the real thing (SHIP_CMD)
 ```
+
+Release N is v1, v2, ...: `src/ffb_version.h` must say `N.0.0` (rebuild after changing it), and games.json
+then carries `"N.0.0"` (docs/SPEC.md, Versions). v1 is `--release 1`.
 
 The games list comes from `site/games.json.in` (edit that to add a game); the `launcher` block is written
 from the bytes of `build/Release/FFB Co-op.exe` -- its sha256, its size and the FileVersion in its version
@@ -79,6 +82,8 @@ refuses, and uploads nothing, when:
 
 - `tools/doc_rules.sh` or `tools/scan_rules.sh` fails or is missing;
 - the exe has no version resource, or its FileVersion and ProductVersion differ, or `--version` differs;
+- the exe's version is not a release version `N.0.0` (N at least 1), or `--release N` is given and the exe
+  is not `N.0.0`, or N is not a release number (1, 2, 3, ...);
 - the resulting games.json breaks a rule in `docs/SPEC.md` (or `games.json.in` carries its own `launcher`);
 - the signing key is missing (a `--dry-run` only warns and writes no `.sig`), unreadable by its owner only,
   not 32 raw bytes, or not one of the keys in `src/trusted_keys.h`;

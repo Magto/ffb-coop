@@ -3,6 +3,8 @@
 One line per module changed, newest first: the date, the module, what it does differently now, and
 the PR.
 
+- 2026-10-01 · publish (`tools/publish.py`) · takes `--release N` and refuses an exe that is not `N.0.0`; without it, still refuses any exe whose version is not `N.0.0`. The live comparison is unchanged · PR #25 for #24
+- 2026-10-01 · app/version (`src/ffb_version.h`, `src/app_win.cpp`) · the exe is 1.0.0 (v1); the console window title is `FFB Co-op vN` from the major number; the printed version line is unchanged in form (`FFB Co-op 1.0.0`) · PR #25 for #24
 - 2026-10-01 · signature (`src/signature`, `src/trusted_keys.h`, `third_party/tweetnacl.c`) · new: checks an ed25519 `.sig` (128 hex digits over the exact file bytes) against the public keys compiled in from `src/trusted_keys.h` · PR for #21
 - 2026-10-01 · app (`src/app.cpp`) · fetches `games.json.sig` beside games.json and checks it before parsing; missing or wrong is an offline start with `coopmods.com sent a file without a valid signature (...)`, so no self-update. games.json is now kept in `FFB Co-op\` after the package update rather than before, and not at all when the manifest came unsigned · PR for #21
 - 2026-10-01 · package (`src/package`) · fetches `<manifest URL>.sig` and checks it before parsing the manifest; missing or wrong is the new outcome Unsigned, nothing downloaded and the package folder untouched (not even created); no answer is Unreachable · PR for #21
