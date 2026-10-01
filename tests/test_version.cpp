@@ -15,5 +15,12 @@ int main() {
     CHECK(from_numbers == FFB_VERSION_STR);
     CHECK(std::string(FFB_PRODUCT_NAME) == "FFB Co-op");
     CHECK(ffb_version_line() == std::string("FFB Co-op ") + FFB_VERSION_STR);
+
+    // Release N is N.0.0 (#24, docs/SPEC.md "Versions"): the player sees "vN",
+    // games.json carries "N.0.0", and nothing else is ever bumped.
+    CHECK(FFB_VERSION_MAJOR >= 1);
+    CHECK(FFB_VERSION_MINOR == 0);
+    CHECK(FFB_VERSION_PATCH == 0);
+    CHECK(ffb_window_title() == std::string("FFB Co-op v") + std::to_string(FFB_VERSION_MAJOR));
     return ffb_test_result();
 }

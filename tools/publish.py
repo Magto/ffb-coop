@@ -1,6 +1,9 @@
 """Publish FFB Co-op.exe and games.json to coopmods.com (SHIP_CMD, #7).
 
-    python tools/publish.py [--exe "build/Release/FFB Co-op.exe"] [--version X.Y.Z] [--dry-run]
+    python tools/publish.py [--release N] [--exe "build/Release/FFB Co-op.exe"] [--dry-run]
+
+Release N is version "N.0.0" (docs/SPEC.md, "Versions"): v1 is 1.0.0, v2 is 2.0.0. Players and the site say
+"vN"; games.json and the exe's version resource carry "N.0.0".
 
 What it does, in order, and what makes it refuse:
 
@@ -8,7 +11,8 @@ What it does, in order, and what makes it refuse:
    (a --dry-run only warns about a missing one).
 2. Reads the exe: its sha256, its size and its version from the version resource (VS_FIXEDFILEINFO,
    FileVersion MAJOR.MINOR.PATCH). Refuses when there is no version resource, when FileVersion and
-   ProductVersion disagree, or when --version is given and differs from the exe's.
+   ProductVersion disagree, when it is not a release version N.0.0, when --release N is given and the exe is
+   not N.0.0 (set src/ffb_version.h and rebuild), or when --version is given and differs from the exe's.
 3. Builds games.json: the `launcher` block from those bytes, the games list from site/games.json.in, and
    checks the result against every docs/SPEC.md rule (a file the launcher would reject is never written).
    Signs it (#21, tools/signing.py): games.json.sig beside it, with the private key from COOPMODS_SIGNING_KEY or
@@ -86,6 +90,22 @@ RESERVED = ({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"}
 
 def version_key(v):
     return tuple(int(p) for p in v.split("."))
+
+
+RELEASE_RE = re.compile(r"[1-9]\d*")
+
+
+def release_version(n):
+    """Release number N ("1", "2", ...) -> "N.0.0", the version games.json carries for vN (#24)."""
+    if not isinstance(n, str) or not RELEASE_RE.fullmatch(n):
+        raise Refused(f"release {n!r} is not a release number 1, 2, 3, ...")
+    return f"{n}.0.0"
+
+
+def is_release_version(v):
+    """True for "N.0.0" with N >= 1: every published launcher is vN."""
+    m = VERSION_RE.fullmatch(v)
+    return bool(m) and m.group(1) != "0" and m.group(2) == "0" and m.group(3) == "0"
 
 
 def plain_name_problem(name):
@@ -333,6 +353,11 @@ def publish(a):
         games_in = json.load(f)
     doc = build_games_json(games_in, exe_bytes)
     ver = doc["launcher"]["version"]
+    if a.release is not None and release_version(a.release) != ver:
+        raise Refused(f"--release {a.release} is {release_version(a.release)} but the exe says {ver} -- "
+                      f"set src/ffb_version.h to {release_version(a.release)} and rebuild")
+    if not is_release_version(ver):
+        raise Refused(f"the exe says {ver}, not a release version N.0.0 (v1 is 1.0.0) -- see docs/SPEC.md, Versions")
     if a.version and a.version != ver:
         raise Refused(f"--version {a.version} but the exe says {ver}")
     try:
@@ -381,6 +406,8 @@ def publish(a):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--exe", default=DEFAULT_EXE, help="the built launcher (default: build/Release/FFB Co-op.exe)")
+    ap.add_argument("--release", metavar="N", help="release N (v1, v2, ...): refuse unless the exe is N.0.0, "
+                                                   "which is what games.json then carries")
     ap.add_argument("--version", help="refuse unless the exe's version resource says exactly this")
     ap.add_argument("--games-in", default=GAMES_IN, help="the games list source (default: site/games.json.in)")
     ap.add_argument("--out", default=os.path.join(REPO, "site", "games.json"), help="where games.json is written")

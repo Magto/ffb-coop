@@ -2,6 +2,7 @@
 // the self-update's own Windows side, CreateProcess for the package launcher,
 // and the console for lines and the key press. See app.h.
 #include "app.h"
+#include "ffb_version.h"
 
 #include <windows.h>
 #include <conio.h>
@@ -122,6 +123,7 @@ std::wstring self_folder() {
 // working directory, which a shortcut can set to anywhere.
 int run_windows() {
     SetConsoleOutputCP(CP_UTF8);   // game folders can hold any character
+    SetConsoleTitleW(widen(ffb_window_title()).c_str());   // "FFB Co-op v1" (#24)
     AppInput in;
     in.game_folder = narrow(self_folder());
     in.arg_tail    = command_line_tail(narrow(GetCommandLineW()));

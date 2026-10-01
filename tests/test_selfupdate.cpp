@@ -42,6 +42,7 @@ struct FakeIo : SelfUpdateIo {
     int  downloads = 0, moves = 0;
     std::vector<std::wstring> restarts;
     std::vector<std::string>  warnings;
+    std::vector<std::string>  notes;
 
     FakeIo() { files[kSelf] = kOldBytes; }
 
@@ -70,7 +71,7 @@ struct FakeIo : SelfUpdateIo {
         restarts.push_back(exe);
         return restart_ok;
     }
-    void note(const std::string&) override {}
+    void note(const std::string& line) override { notes.push_back(line); }
     void warn(const std::string& line) override { warnings.push_back(line); }
 
     bool has(const std::wstring& p) const { return files.count(p) != 0; }
@@ -151,6 +152,24 @@ int main() {
         CHECK(io.restarts.size() == 1 && io.restarts[0] == kSelf);
         CHECK(io.warnings.empty());
     }
+    // v1 reaches the launcher in the field (#24): 0.1.0, live on coopmods.com
+    // since 2026-09-25, reads launcher.version "1.0.0" from games.json and takes
+    // it. parse_version and compare_version are unchanged since 0.1.0 was built,
+    // so this is the field launcher's own decision.
+    {
+        CHECK(parses("1.0.0"));
+        CHECK(cmp("1.0.0", "0.1.0") == 1);
+        FakeIo io;
+        CHECK(self_update(block("1.0.0"), v(0, 1, 0), io) == SelfUpdateOutcome::Restart);
+        CHECK(io.downloads == 1 && io.at(kSelf) == kNewBytes);
+        CHECK(io.restarts.size() == 1 && io.warnings.empty());
+        // the line #24's Log check names, first of the update's notes
+        const std::string said = "self-update: 1.0.0 is out, this is 0.1.0";
+        CHECK(!io.notes.empty() && io.notes[0].compare(0, said.size(), said) == 0);
+    }
+    // and every later release is newer than the one before: v2 over v1, v10 over v9
+    CHECK(cmp("2.0.0", "1.0.0") == 1);
+    CHECK(cmp("10.0.0", "9.0.0") == 1);
     // numbers, not text: 1.10.0 is newer than 1.9.0
     {
         FakeIo io;

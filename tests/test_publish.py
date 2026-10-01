@@ -206,6 +206,69 @@ class DryRun(unittest.TestCase):
         self.assertEqual(publish.main(["--exe", self.exe + ".nope", "--out", self.out, "--dry-run"]), 1)
 
 
+class Release(unittest.TestCase):
+    """Release N is "N.0.0" (#24, docs/SPEC.md "Versions"); v1 is the first after the field's 0.1.0."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.exe = os.path.join(self.tmp.name, "FFB Co-op.exe")
+        self.out = os.path.join(self.tmp.name, "games.json")
+        self.live = None
+        self.patches = [mock.patch.object(publish, "run_gates"),
+                        mock.patch.object(publish, "fetch_live_games", side_effect=lambda: self.live),
+                        mock.patch.object(publish, "run", side_effect=AssertionError("dry run touched the server"))]
+        for p in self.patches: p.start()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.tmp.cleanup()
+
+    def exe_says(self, ver):
+        with open(self.exe, "wb") as f:
+            f.write(fake_exe(ver))
+
+    def main(self, *extra):
+        return publish.main(["--exe", self.exe, "--out", self.out, "--dry-run", *extra])
+
+    def test_release_number_is_n_0_0(self):
+        self.assertEqual(publish.release_version("1"), "1.0.0")
+        self.assertEqual(publish.release_version("2"), "2.0.0")
+        self.assertEqual(publish.release_version("10"), "10.0.0")
+
+    def test_not_a_release_number_refused(self):
+        for bad in ("0", "01", "-1", "v1", "1.0", "1.0.0", "", " 1", "1 "):
+            with self.assertRaises(publish.Refused, msg=repr(bad)):
+                publish.release_version(bad)
+
+    def test_release_1_writes_1_0_0(self):
+        self.exe_says((1, 0, 0, 0))
+        self.assertEqual(self.main("--release", "1"), 0)
+        self.assertEqual(load(self.out)["launcher"]["version"], "1.0.0")
+
+    def test_release_disagreeing_with_exe_refused(self):
+        self.exe_says((1, 0, 0, 0))
+        self.assertEqual(self.main("--release", "2"), 1)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_exe_not_a_release_version_refused(self):
+        for ver in ((0, 1, 0, 0), (1, 0, 1, 0), (1, 1, 0, 0)):
+            self.exe_says(ver)
+            self.assertEqual(self.main(), 1, ver)
+            self.assertFalse(os.path.exists(self.out), ver)
+
+    def test_v1_over_the_live_0_1_0_accepted(self):
+        self.live = publish.build_games_json(copy.deepcopy(GAMES_IN), fake_exe((0, 1, 0, 0), pad=b"old"))
+        self.exe_says((1, 0, 0, 0))
+        self.assertEqual(self.main("--release", "1"), 0)
+        self.assertEqual(load(self.out)["launcher"]["version"], "1.0.0")
+
+    def test_release_older_than_live_refused(self):
+        self.live = publish.build_games_json(copy.deepcopy(GAMES_IN), fake_exe((2, 0, 0, 0), pad=b"v2"))
+        self.exe_says((1, 0, 0, 0))
+        self.assertEqual(self.main("--release", "1"), 1)
+        self.assertFalse(os.path.exists(self.out))
+
+
 class FakeServer:
     """Stands in for ssh/scp and for https: a dict of remote path -> bytes. It does what the commands
     say (scp copies the local file, `sha256sum`/`mv -f`/`rm -f`/`mkdir -p` act on the dict) and records

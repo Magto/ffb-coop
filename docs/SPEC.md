@@ -245,11 +245,11 @@ has been served from coopmods.com since 2026-09-25: `games.json` advertises laun
 (586752 bytes) and `launcher/FFB%20Co-op.exe` answers it (observed by the #22 review, 2026-10-01
 23:25). Players holding it must reach the first signing version by self-update, and this is how:
 
-- **The first signing version carries a higher number than 0.1.0.** A launcher compares versions
-  only, so a signing build still numbered 0.1.0 would never reach a 0.1.0 player. The number in
-  `src/ffb_version.h` is raised at publish, not in #22; `tools/publish.py` stops a mistake
-  mechanically, because its comparison with the live games.json refuses a lower version and refuses
-  the same version with different bytes ("bump the version").
+- **v1 (`1.0.0`) is the first signing version** (#24). A launcher compares versions only, so a
+  signing build still numbered 0.1.0 would never reach a 0.1.0 player; 0.1.0 stays the unnumbered
+  preview, and v1 is the first public version. `tools/publish.py --release 1` refuses an exe that is
+  not 1.0.0, and its comparison with the live games.json refuses a lower version and the same
+  version with different bytes ("bump the version").
 - **0.1.0 never asks for a signature.** games.json keeps its format and the signature is a separate
   file, so 0.1.0 reads a signed games.json exactly as an unsigned one.
 
@@ -259,7 +259,7 @@ The release order, and what a 0.1.0 launcher and a signing launcher see at each 
 |---|---|---|
 | 1. The coopmods.com site block serves `/games.json.sig` without a cookie (`site/README.md`). Until it does, `tools/publish.py` refuses to upload. | No change: it never fetches the `.sig`. | (none exists yet) |
 | 2. mewgenics-coop publishes `manifest.json.sig` beside its manifest, signed with this key (Magto/mewgenics-coop#553). | No change: it never fetches the `.sig`. | (none exists yet) |
-| 3. `tools/publish.py` publishes the signing FFB Co-op.exe under a higher number: the exe, then `games.json.sig`, then games.json. | On its next start it reads the new games.json, sees the higher version, downloads the exe, checks its size and sha256, replaces itself and restarts as the signing version. Before games.json is renamed it still sees the old games.json and stays as it is, to update on the next start. | From then on: games.json and the Mewgenics manifest are checked and accepted, and the flow is as before. |
+| 3. `tools/publish.py --release 1` publishes the signing FFB Co-op.exe as v1 (`1.0.0`): the exe, then `games.json.sig`, then games.json. | On its next start it reads the new games.json, sees the higher version, downloads the exe, checks its size and sha256, replaces itself and restarts as the signing version. Before games.json is renamed it still sees the old games.json and stays as it is, to update on the next start. | From then on: games.json and the Mewgenics manifest are checked and accepted, and the flow is as before. |
 
 If step 3 ran before step 2, the 0.1.0 launchers would still update in step 3, but the signing
 version they became would refuse the unsigned Mewgenics manifest. An installed player would get the
@@ -370,6 +370,12 @@ container keeps the old file). Edit it in place — open read/write, write, trun
 work as in mewgenics-coop's `site/README.md`: each cookie-free path is named in the site block.
 The publish script and the coopmods.com site block are #7.
 
+## Versions
+
+Release N is "vN" to players and the site, and `N.0.0` in `src/ffb_version.h`, the version resource
+and games.json's `launcher.version` (#24; decided by Martin 2026-10-01): v1 is `1.0.0`, then v2, v3, …
+The console window's title is `FFB Co-op vN`; the first printed line stays `FFB Co-op N.0.0`.
+
 ## Constraints
 
 - Existing players' standalone loader keeps working; there is no forced migration.
@@ -413,6 +419,11 @@ Martin's picks, 2026-09-25, in the lead pane, quoted exactly:
 - **Repo:** "Magto/ffb-coop, own board (Recommended)"
 - **Settings:** "Start fresh"
 - **Offline:** "Run installed, warn (Recommended)"
+
+Later, quoted exactly:
+
+- **Versions** (2026-10-01 23:27, mewgenics-coop lead pane, #24): "file it as an ffb-coop card for
+  the v1 release and prio it" — the signing launcher ships as v1, `1.0.0` on the wire ([Versions](#versions)).
 
 ## Defaults this spec chose
 
