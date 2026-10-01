@@ -240,23 +240,34 @@ telling players to download FFB Co-op.exe again.
 
 ### Transition
 
-Players' launchers in the field never stop updating:
+**A launcher without the check is already in the field.** FFB Co-op.exe 0.1.0, built before #21,
+has been served from coopmods.com since 2026-09-25: `games.json` advertises launcher 0.1.0
+(586752 bytes) and `launcher/FFB%20Co-op.exe` answers it (observed by the #22 review, 2026-10-01
+23:25). Players holding it must reach the first signing version by self-update, and this is how:
 
-- **FFB Co-op.exe without the check (0.1.0 and anything built before #21).** It reads games.json
-  exactly as before — the file's format is unchanged, the signature is a separate file it never asks
-  for — so it self-updates to the first signing version like to any other. As of 2026-10-01 no
-  FFB Co-op.exe has been published (`docs/CHANGELOG.md` is all Unreleased), so the first public
-  version already checks.
-- **Every launcher with the check** needs every file it reads signed, so the order of the first
-  release is:
-  1. the coopmods.com site block serves `/games.json.sig` without a cookie (`site/README.md`);
-     `tools/publish.py` refuses to upload until it does;
-  2. mewgenics-coop publishes `manifest.json.sig` beside its manifest with this key
-     (Magto/mewgenics-coop#553). Until then a checking launcher refuses the Mewgenics manifest and
-     cannot install the package;
-  3. then `tools/publish.py` publishes the signing FFB Co-op.exe, with `games.json.sig`.
-- **The Mewgenics loader** (`mewcoop_loader.exe`) reads the same manifest and ignores the `.sig`
-  beside it until mewgenics-coop#553 teaches it to check.
+- **The first signing version carries a higher number than 0.1.0.** A launcher compares versions
+  only, so a signing build still numbered 0.1.0 would never reach a 0.1.0 player. The number in
+  `src/ffb_version.h` is raised at publish, not in #22; `tools/publish.py` stops a mistake
+  mechanically, because its comparison with the live games.json refuses a lower version and refuses
+  the same version with different bytes ("bump the version").
+- **0.1.0 never asks for a signature.** games.json keeps its format and the signature is a separate
+  file, so 0.1.0 reads a signed games.json exactly as an unsigned one.
+
+The release order, and what a 0.1.0 launcher and a signing launcher see at each step:
+
+| Step | A 0.1.0 launcher | A signing launcher |
+|---|---|---|
+| 1. The coopmods.com site block serves `/games.json.sig` without a cookie (`site/README.md`). Until it does, `tools/publish.py` refuses to upload. | No change: it never fetches the `.sig`. | (none exists yet) |
+| 2. mewgenics-coop publishes `manifest.json.sig` beside its manifest, signed with this key (Magto/mewgenics-coop#553). | No change: it never fetches the `.sig`. | (none exists yet) |
+| 3. `tools/publish.py` publishes the signing FFB Co-op.exe under a higher number: the exe, then `games.json.sig`, then games.json. | On its next start it reads the new games.json, sees the higher version, downloads the exe, checks its size and sha256, replaces itself and restarts as the signing version. Before games.json is renamed it still sees the old games.json and stays as it is, to update on the next start. | From then on: games.json and the Mewgenics manifest are checked and accepted, and the flow is as before. |
+
+If step 3 ran before step 2, the 0.1.0 launchers would still update in step 3, but the signing
+version they became would refuse the unsigned Mewgenics manifest. An installed player would get the
+old mod with the warning on every start, and a new player the not-installed screen, until step 2.
+Step 2 therefore comes first.
+
+**The Mewgenics loader** (`mewcoop_loader.exe`) reads the same manifest and ignores the `.sig`
+beside it until mewgenics-coop#553 teaches it to check.
 
 ### Not covered
 
