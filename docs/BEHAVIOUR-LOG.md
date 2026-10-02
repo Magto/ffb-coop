@@ -3,6 +3,7 @@
 One line per module changed, newest first: the date, the module, what it does differently now, and
 the PR.
 
+- 2026-10-02 · app (`src/app.cpp`, `src/app_win.cpp`, `src/child_env`) · when games.json gives the game a `steam_appid` above 0, the package launcher is started with `SteamAppId` and `SteamGameId` set to it, so a genuine Steam copy does not restart itself without the mod; with 0 its environment is unchanged. `site/games.json.in` now gives Mewgenics 686060 · PR for #28
 - 2026-10-01 · publish (`tools/publish.py`) · takes `--release N` and refuses an exe that is not `N.0.0`; without it, still refuses any exe whose version is not `N.0.0`. The live comparison is unchanged · PR #25 for #24
 - 2026-10-01 · app/version (`src/ffb_version.h`, `src/app_win.cpp`) · the exe is 1.0.0 (v1); the console window title is `FFB Co-op vN` from the major number; the printed version line is unchanged in form (`FFB Co-op 1.0.0`) · PR #25 for #24
 - 2026-10-01 · signature (`src/signature`, `src/trusted_keys.h`, `third_party/tweetnacl.c`) · new: checks an ed25519 `.sig` (128 hex digits over the exact file bytes) against the public keys compiled in from `src/trusted_keys.h` · PR for #21

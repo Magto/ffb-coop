@@ -78,7 +78,7 @@ struct FakeSelfIo : ffb::SelfUpdateIo {
     void warn(const std::string& line) override { warns.push_back(line); }
 };
 
-struct Start { std::string exe, cmdline, workdir; };
+struct Start { std::string exe, cmdline, workdir; std::uint64_t steam_appid; };
 
 int g_bad_waits = 0;   // summed over every FakeIo, checked once at the end
 
@@ -94,8 +94,8 @@ struct FakeIo : ffb::AppIo {
     ffb::Net& net() override { return net_; }
     ffb::SelfUpdateIo& self_update_io() override { return self_; }
     bool start_process(const std::string& exe, const std::string& cmdline, const std::string& workdir,
-                       std::string* why) override {
-        starts.push_back({exe, cmdline, workdir});
+                       std::uint64_t steam_appid, std::string* why) override {
+        starts.push_back({exe, cmdline, workdir, steam_appid});
         if (!start_ok) *why = "error 2";
         return start_ok;
     }
@@ -140,9 +140,10 @@ std::string read(const fs::path& p) {
 
 const std::string kSha0(64, '0');
 
-std::string game_json(const std::string& id, const std::string& exe) {
+std::string game_json(const std::string& id, const std::string& exe, std::uint64_t steam_appid = 0) {
     return "{\"id\":\"" + id + "\",\"name\":\"" + id + "\",\"exe\":\"" + exe +
-           "\",\"steam_appid\":0,\"manifest\":\"" + kManifestUrl + "\",\"launcher\":\"" + kLoader + "\"}";
+           "\",\"steam_appid\":" + std::to_string(steam_appid) + ",\"manifest\":\"" + kManifestUrl +
+           "\",\"launcher\":\"" + kLoader + "\"}";
 }
 
 // games.json with the launcher block at `version` and the two games below.
@@ -213,6 +214,7 @@ void test_happy_path() {
     if (io.starts.size() == 1) {
         CHECK(io.starts[0].exe == (t.pkg() / kLoader).u8string());
         CHECK(io.starts[0].workdir == t.pkg().u8string());   // accepted default 7
+        CHECK(io.starts[0].steam_appid == 0);   // games.json says 0: environment untouched (#28)
         // The temp folder name has spaces, so both paths arrive quoted; the
         // extra arguments follow unchanged.
         CHECK(io.starts[0].cmdline ==
@@ -529,6 +531,21 @@ void test_start_fails() {
     CHECK(io.keys == 1);
 }
 
+void test_steam_appid_reaches_start() {
+    std::printf("games.json steam_appid 686060: the launcher is started with that id (#28)\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    FakeIo io;
+    serve_all(io);
+    io.net_.pages[ffb::kGamesJsonUrl] = {
+        200, "{\"schema\":1,\"launcher\":{\"version\":\"0.1.0\",\"url\":\"" + kSelfUrl +
+                 "\",\"sha256\":\"" + kSha0 + "\",\"size\":1},\"games\":[" +
+                 game_json("mewgenics", "Mewgenics.exe", 686060) + "]}"};
+    CHECK(ffb::run_app(input(t), io) == 0);
+    CHECK(io.starts.size() == 1);
+    if (io.starts.size() == 1) CHECK(io.starts[0].steam_appid == 686060);
+}
+
 void test_version_switch() {
     std::printf("--version alone: the version line, exit 0, no network, nothing written\n");
     TempFolder t;
@@ -741,6 +758,7 @@ int main() {
     test_self_update_failed();
     test_self_update_restart();
     test_start_fails();
+    test_steam_appid_reaches_start();
     test_version_switch();
     test_games_json_unsigned();
     test_games_json_default_keys();

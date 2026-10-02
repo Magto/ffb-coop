@@ -5,7 +5,7 @@
       "id": "mewgenics",
       "name": "Mewgenics",
       "exe": "Mewgenics.exe",
-      "steam_appid": 0,
+      "steam_appid": 686060,
       "manifest": "https://mewgenics.coopmods.com/update/manifest.json",
       "launcher": "mewcoop_loader.exe"
     }
