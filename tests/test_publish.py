@@ -569,9 +569,6 @@ class Signing(unittest.TestCase):
         self.assertEqual(signing.main(["verify", f]), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 # ---- the dev channel (#26) --------------------------------------------------------------------------
 
@@ -591,9 +588,17 @@ class DevServer(FakeServer):
         super().__init__()
         self.gate = True
         self.https = []
+        # The reads (cat, test -f) fail as ssh does when it cannot connect: exit 255. Later commands still
+        # work, as when only the first connection drops.
+        self.ssh_down = False
 
     def run(self, cmd, check=True):
         shell = cmd[-1]
+        if cmd[0] == "ssh" and self.ssh_down and shell.startswith(("cat ", "test -f ")):
+            self.cmds.append(cmd)
+            if check:
+                raise publish.Refused("fake ssh failed")
+            return mock.Mock(returncode=255, stdout="", stderr="ssh: connect to host: Connection timed out")
         if cmd[0] == "ssh" and shell.startswith("cat "):
             self.cmds.append(cmd)
             data = self.files.get(shell[len("cat "):].strip("'"))
@@ -747,6 +752,21 @@ class Dev(unittest.TestCase):
         self.assertEqual(self.main(), 1)
         self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
 
+    def test_ssh_down_is_not_an_empty_server(self):
+        # A live 1.0.1 with other bytes would refuse this exe; an ssh that cannot connect must not hide it.
+        self.live_dev("1.0.1")
+        self.server.ssh_down = True
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+        with self.assertRaises(publish.Refused):
+            publish.remote_exists(DEV_REMOTE + "/mewgenics/manifest.json")
+
+    def test_missing_file_is_none_and_present_file_is_read(self):
+        self.assertIsNone(publish.fetch_live_dev_games())
+        self.assertFalse(publish.remote_exists(DEV_REMOTE + "/mewgenics/manifest.json"))
+        live = self.live_dev("1.0.3")
+        self.assertEqual(publish.fetch_live_dev_games(), live)
+
     def test_newer_than_live_dev_accepted(self):
         self.live_dev("1.0.0")
         self.assertEqual(self.main(), 0)
@@ -772,6 +792,15 @@ class Dev(unittest.TestCase):
         with open(games_in, "w") as f:
             json.dump(GAMES_IN, f)   # mewgenics reads the public manifest
         self.assertEqual(self.main("--games-in", games_in), 1)
+
+    def test_package_without_its_launcher_refused(self):
+        os.remove(os.path.join(self.pkg, "mewcoop_loader.exe"))
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+
+    def test_package_with_its_launcher_optional_refused(self):
+        self.assertEqual(self.main("--optional", "mewcoop_loader.exe"), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
 
     def test_bad_package_folders_refused(self):
         with self.assertRaises(publish.Refused):
@@ -819,3 +848,7 @@ class Dev(unittest.TestCase):
             self.assertEqual(self.main("--dry-run"), 0)
         self.assertTrue(os.path.exists(os.path.join(self.out, "games.json")))
         self.assertTrue(os.path.exists(os.path.join(self.out, "mewgenics", "manifest.json.sig")))
+
+
+if __name__ == "__main__":
+    unittest.main()

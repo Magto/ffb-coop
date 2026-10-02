@@ -150,15 +150,21 @@ coopmods.com, www.coopmods.com {
 ```
 
    On a Caddy older than 2.8 the directive is spelled `basicauth`; `caddy validate` says which.
-3. **Make the folder:** `mkdir -p /opt/downloads/ffb-coop-site/dev`.
-4. **Check it**, from anywhere:
+3. **Make sure no other site serves these files.** The same Caddyfile serves Matrix, mewgenics.coopmods.com, patreon,
+   logs and others from the same `/downloads` mount; a block whose `root` is `/downloads` or `/downloads/ffb-coop-site`
+   would serve the dev files without the login on its own host, and the checks below (and `tools/publish.py --dev`)
+   only ask `coopmods.com`. List them with `grep -n 'root' "$CADDYFILE"`: only the `coopmods.com` block may name
+   `/downloads/ffb-coop-site`, and none may name `/downloads` itself. Anything else is a stop for Martin before the
+   first dev publish.
+4. **Make the folder:** `mkdir -p /opt/downloads/ffb-coop-site/dev`.
+5. **Check it**, from anywhere:
    - `curl -s -o /dev/null -w '%{http_code}\n' https://coopmods.com/dev/games.json` says `401`;
    - with a login, `curl -s -o /dev/null -w '%{http_code}\n' -u martin https://coopmods.com/dev/games.json` says `404`
      until the first dev publish, `200` after;
    - the public paths are unchanged: `curl -s https://coopmods.com/games.json` still answers games.json without a
      login, and `https://coopmods.com/dev` (no slash) the placeholder.
 
-`tools/publish.py --dev` refuses to upload anything until step 4's first check says 401, so a dev file can never go
+`tools/publish.py --dev` refuses to upload anything until step 5's first check says 401, so a dev file can never go
 up while the gate is missing. Revoking a person later is deleting their line and reloading.
 
 ### Publishing to the dev channel

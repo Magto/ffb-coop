@@ -461,14 +461,23 @@ def check_dev_gate():
                       "deploy the site block in site/README.md first")
 
 
+def ssh_answer(cmd, what):
+    """Runs `cmd` on the server. -> True on exit 0, False on exit 1 (the file is not there); raises Refused on
+    anything else -- ssh itself fails with 255 -- so a dropped connection never reads as a missing file."""
+    r = run(["ssh", "-o", "ConnectTimeout=15", HOST, cmd], check=False)
+    if r.returncode in (0, 1):
+        return r.returncode == 0, r
+    raise Refused(f"could not {what} on the server (ssh exit {r.returncode})")
+
+
 def ssh_read(path):
     """-> the text of a file on the server, or None when it is not there."""
-    r = run(["ssh", "-o", "ConnectTimeout=15", HOST, f"cat '{path}'"], check=False)
-    return r.stdout if r.returncode == 0 else None
+    ok, r = ssh_answer(f"cat '{path}'", f"read {path}")
+    return r.stdout if ok else None
 
 
 def remote_exists(path):
-    return run(["ssh", "-o", "ConnectTimeout=15", HOST, f"test -f '{path}'"], check=False).returncode == 0
+    return ssh_answer(f"test -f '{path}'", f"look for {path}")[0]
 
 
 def fetch_live_dev_games():
@@ -542,7 +551,7 @@ def publish_dev(a):
 
     try:
         live = fetch_live_dev_games()
-    except Exception as e:   # noqa: BLE001 -- any ssh failure
+    except Exception as e:   # noqa: BLE001 -- any ssh failure, Refused included
         if not a.dry_run:
             raise Refused(f"cannot read the live dev games.json on the server: {e}")
         print(f"warning: live dev games.json not read ({e}); skipped the live comparison")
@@ -578,7 +587,13 @@ def publish_dev(a):
         if game["manifest"] != dev_manifest_url(game_id):
             raise Refused(f"--package {game_id}: its manifest in {os.path.relpath(a.games_in, REPO)} is "
                           f"{game['manifest']}, not {dev_manifest_url(game_id)}")
-        manifests.append((game_id, folder, build_package_manifest(folder, a.package_version, a.optional or ())))
+        m = build_package_manifest(folder, a.package_version, a.optional or ())
+        # The launcher refuses a manifest that does not list the game's launcher as a required file
+        # (docs/SPEC.md, games[].launcher), so such a package would never install.
+        if not any(f["name"] == game["launcher"] and f["required"] for f in m["files"]):
+            raise Refused(f"--package {game_id}: {folder} must hold {game['launcher']}, the game's launcher, and it "
+                          "cannot be --optional")
+        manifests.append((game_id, folder, m))
     published = {m[0] for m in manifests}
     for g in doc["games"]:
         if under_dev(g["manifest"]) and g["id"] not in published:
