@@ -3,6 +3,8 @@
 // the Mewgenics Coop fork); the sha256 here is new, written from FIPS 180-4.
 #include "net.h"
 
+#include "channel.h"
+
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -189,8 +191,17 @@ int WinHttpNet::get(const std::string& url_utf8, const Sink& sink) {
     // 3 s to resolve and connect: the host either answers at once or is not there.
     WinHttpSetTimeouts(req, 3000, 3000, (int)timeout_ms_, (int)timeout_ms_);
 
+    // The dev login (#26), for a URL under the dev channel's prefix only. Never
+    // followed through a redirect: the header would go wherever it points.
+    const std::wstring login = widen(process_login_header(url_utf8));
+    if (!login.empty()) {
+        DWORD never = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+        WinHttpSetOption(req, WINHTTP_OPTION_REDIRECT_POLICY, &never, sizeof(never));
+    }
+
     DWORD status = 0;
-    if (!WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+    if (!WinHttpSendRequest(req, login.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : login.c_str(),
+                            login.empty() ? 0 : (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
         !WinHttpReceiveResponse(req, nullptr)) {
         WinHttpCloseHandle(req); WinHttpCloseHandle(conn);
         return 0;

@@ -8,6 +8,7 @@
 // the Windows AppIo (src/app_win.cpp) and calls run_app.
 #pragma once
 
+#include "channel.h"
 #include "net.h"
 #include "selfupdate.h"
 #include "signature.h"
@@ -18,13 +19,16 @@
 
 namespace ffb {
 
-// Fetched once per start. A 404 (not published yet) is "server unreachable".
+// The public channel's games.json, fetched once per start. A 404 (not published
+// yet) is "server unreachable". The dev exe reads its channel's instead (#26,
+// src/channel.h).
 extern const char* const kGamesJsonUrl;
 
-// The package folder's name inside the game folder, and the games.json kept in
-// it for offline starts (docs/SPEC.md, accepted default 3). The manifest of the
-// last good update is kept beside it, so an offline start knows every required
-// file of the package.
+// The public channel's package folder name inside the game folder, and the
+// games.json kept in it for offline starts (docs/SPEC.md, accepted default 3).
+// The manifest of the last good update is kept beside it, so an offline start
+// knows every required file of the package. The dev exe uses its channel's
+// folder, with the same two files in it.
 extern const char* const kPackageDirName;
 extern const char* const kCachedGamesJson;
 extern const char* const kCachedManifest;
@@ -62,6 +66,13 @@ public:
     // The public keys games.json and the manifest must be signed with: the
     // compiled-in ones (src/trusted_keys.h). A test hands in its own.
     virtual const std::vector<PublicKey>& trusted_keys() { return ffb::trusted_keys(); }
+
+    // A channel with a login (the dev channel, #26): called once before
+    // games.json is fetched, so the Windows side can load or ask for it, and
+    // again if coopmods.com answers games.json with HTTP 401, so it can forget
+    // the refused one. The public channel never calls either.
+    virtual void log_in() {}
+    virtual void login_refused() {}
 };
 
 struct AppInput {
@@ -70,6 +81,9 @@ struct AppInput {
     // (command_line_tail). Passed on to the package launcher unchanged.
     std::string arg_tail;
     Version running;          // running_version() outside tests
+    // Which games.json is read and which package folder is written (#26):
+    // this_channel() outside tests.
+    const Channel* channel = &public_channel();
 };
 
 // The whole start. -> the process exit code: 0 when the package launcher was

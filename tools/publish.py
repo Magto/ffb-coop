@@ -29,8 +29,22 @@ What it does, in order, and what makes it refuse:
 
 --dry-run does 1-4 (the live comparison only if the server answers) and writes site/games.json (and
 site/games.json.sig when the key is there), and uploads nothing. The server layout and the Caddy block are in site/README.md.
+
+The dev channel (#26, docs/SPEC.md "Dev channel") -- FFB Co-op - dev.exe and dev packages, for Martin and budda:
+
+    python tools/publish.py --dev [--exe "build/Release/FFB Co-op - dev.exe" | --no-exe]
+                                  [--package GAME_ID DIR --package-version V [--optional NAME ...]] [--dry-run]
+
+Everything it writes on the server is under /opt/downloads/ffb-coop-site/dev/, served at coopmods.com/dev/ behind
+the dev login; it never touches a public file (dev_put refuses any other path). The same gates, the same signing key,
+the same version rules against the live dev games.json (read over ssh: publishing needs no login). The exe must be a
+dev version MAJOR.0.D with D >= 1, which no release exe ever is; --release is refused with --dev. The games list is
+site/dev-games.json.in. --package writes a manifest for every file in DIR (all required except --optional ones),
+signs it and uploads it to coopmods.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
+Before uploading it checks that coopmods.com/dev/games.json answers 401 without a login, so nothing goes up while
+the gate is not deployed; afterwards, that every published URL still does.
 """
-import argparse, hashlib, json, os, re, struct, subprocess, sys, tempfile, urllib.error, urllib.request
+import argparse, base64, hashlib, json, os, re, struct, subprocess, sys, tempfile, urllib.error, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import signing  # noqa: E402  -- tools/signing.py, #21
@@ -47,6 +61,18 @@ PLACEHOLDER = b"Mewgenics Coop -- coopmods.com"   # what the site block answers 
 DEFAULT_EXE = os.path.join(REPO, "build", "Release", EXE_NAME)
 GAMES_IN = os.path.join(REPO, "site", "games.json.in")
 GATES = ("tools/doc_rules.sh", "tools/scan_rules.sh")   # DOC_RULES_CMD, SCAN_RULES_CMD
+
+# The dev channel (#26): one folder on the server, one URL prefix behind the dev login.
+DEV_REMOTE = REMOTE + "/dev"
+DEV_URL = URL + "/dev"
+DEV_EXE_NAME = "FFB Co-op - dev.exe"
+DEV_LAUNCHER_URL = f"{DEV_URL}/launcher/FFB%20Co-op%20-%20dev.exe"
+DEV_GAMES_URL = f"{DEV_URL}/games.json"
+DEV_SIG_URL = DEV_GAMES_URL + signing.SIG_SUFFIX
+DEV_DEFAULT_EXE = os.path.join(REPO, "build", "Release", DEV_EXE_NAME)
+DEV_GAMES_IN = os.path.join(REPO, "site", "dev-games.json.in")
+DEV_OUT_DIR = os.path.join(REPO, "site", "dev")
+DEV_LOGIN_ENV = "FFB_DEV_LOGIN"   # "user:password": optional, lets the post-publish check read the files back
 
 
 class Refused(Exception):
@@ -74,8 +100,8 @@ def exe_version(data):
     return "%d.%d.%d" % fv
 
 
-def launcher_block(data):
-    return {"version": exe_version(data), "url": LAUNCHER_URL,
+def launcher_block(data, url=LAUNCHER_URL):
+    return {"version": exe_version(data), "url": url,
             "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
 
 
@@ -106,6 +132,12 @@ def is_release_version(v):
     """True for "N.0.0" with N >= 1: every published launcher is vN."""
     m = VERSION_RE.fullmatch(v)
     return bool(m) and m.group(1) != "0" and m.group(2) == "0" and m.group(3) == "0"
+
+
+def is_dev_version(v):
+    """True for "N.0.D" with N >= 1 and D >= 1: a dev build (src/ffb_version.h, FFB_DEV_BUILD). Never a release."""
+    m = VERSION_RE.fullmatch(v)
+    return bool(m) and m.group(1) != "0" and m.group(2) == "0" and m.group(3) != "0"
 
 
 def plain_name_problem(name):
@@ -194,14 +226,15 @@ def validate_games_json(doc):
     return p
 
 
-def build_games_json(games_in, exe_bytes):
-    """-> the games.json document: the launcher block from `exe_bytes`, the games from `games_in` (the
-    parsed site/games.json.in). Refuses rather than return a file the launcher would reject."""
+def build_games_json(games_in, exe_bytes=None, launcher=None):
+    """-> the games.json document: the launcher block from `exe_bytes` (or `launcher` as given), the games from
+    `games_in` (the parsed site/games.json.in). Refuses rather than return a file the launcher would reject."""
     if not isinstance(games_in, dict) or games_in.get("schema") != 1:
         raise Refused("site/games.json.in must be an object with \"schema\": 1")
     if "launcher" in games_in:
         raise Refused("site/games.json.in must not carry a launcher block -- it is written from the exe")
-    doc = {"schema": 1, "launcher": launcher_block(exe_bytes), "games": games_in.get("games")}
+    doc = {"schema": 1, "launcher": launcher if launcher is not None else launcher_block(exe_bytes),
+           "games": games_in.get("games")}
     problems = validate_games_json(doc)
     if problems:
         raise Refused("games.json would be invalid:\n  " + "\n  ".join(problems))
@@ -221,8 +254,61 @@ def check_against_live(new, live):
                       "launchers compare versions only and would never fetch these; bump the version")
 
 
+def under_dev(url):
+    return isinstance(url, str) and url.startswith(DEV_URL + "/")
+
+
+def check_no_dev_urls(doc):
+    """The public games.json never points at the dev channel (#26): a public launcher has no login for it."""
+    urls = [doc["launcher"]["url"]] + [g["manifest"] for g in doc["games"]]
+    bad = [u for u in urls if under_dev(u)]
+    if bad:
+        raise Refused("the public games.json would point at the dev channel: " + ", ".join(bad))
+
+
 def dumps(doc):
     return json.dumps(doc, indent=2) + "\n"
+
+
+# ---- the dev channel's package manifest (#26) --------------------------------------------------------
+
+def dev_manifest_url(game_id):
+    return f"{DEV_URL}/{game_id}/manifest.json"
+
+
+def build_package_manifest(folder, version, optional=()):
+    """-> the manifest of every file in `folder` (docs/SPEC.md, "The game manifest"): its name, size and sha256,
+    required unless named in `optional`. Refuses a folder the launcher could not install from."""
+    if not isinstance(version, str) or not (VERSION_RE.fullmatch(version) or re.fullmatch(r"[0-9]+", version)):
+        raise Refused(f"--package-version {version!r} is not N or X.Y.Z")
+    if not os.path.isdir(folder):
+        raise Refused(f"--package folder {folder} does not exist")
+    names = sorted(os.listdir(folder))
+    files, seen = [], set()
+    for name in names:
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            raise Refused(f"{path} is not a file -- a package is one flat folder")
+        if name == "manifest.json" or name.endswith(signing.SIG_SUFFIX):
+            raise Refused(f"{path}: the manifest and its .sig are written by this script, not taken from the folder")
+        why = plain_name_problem(name)
+        if why:
+            raise Refused(f"{path}: {why}")
+        if name.lower() in seen:
+            raise Refused(f"{path}: two files with this name in different case")
+        seen.add(name.lower())
+        with open(path, "rb") as f:
+            data = f.read()
+        if not data:
+            raise Refused(f"{path} is empty")
+        files.append({"name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                      "required": name not in optional})
+    if not files:
+        raise Refused(f"--package folder {folder} is empty")
+    missing = [o for o in optional if o not in [f["name"] for f in files]]
+    if missing:
+        raise Refused(f"--optional names a file that is not in {folder}: {', '.join(missing)}")
+    return {"version": version, "files": files}
 
 
 # ---- the network -----------------------------------------------------------------------------------
@@ -283,17 +369,26 @@ def run_gates(dry_run):
         print(f"{gate}: ok")
 
 
-def remote_put(local, remote_name, sha256):
+def remote_put(local, remote_name, sha256, remote=REMOTE):
     """scp to a temporary name, check the sha256 there, then move into place (a rename, so a reader never
-    sees half a file). `remote_name` is relative to REMOTE and may contain a space."""
-    tmp = f"{REMOTE}/.upload-{sha256[:16]}"
+    sees half a file). `remote_name` is relative to `remote` and may contain a space."""
+    tmp = f"{remote}/.upload-{sha256[:16]}"
     run(["scp", "-q", local, f"{HOST}:{tmp}"])
     r = run(["ssh", "-o", "ConnectTimeout=15", HOST, f"sha256sum {tmp}"])
     got = r.stdout.split()[0] if r.stdout.split() else ""
     if got.lower() != sha256.lower():
         run(["ssh", HOST, f"rm -f {tmp}"], check=False)
         raise Refused(f"{remote_name} arrived with sha256 {got or '?'}, expected {sha256}")
-    run(["ssh", HOST, f"mv -f {tmp} '{REMOTE}/{remote_name}'"])
+    run(["ssh", HOST, f"mv -f {tmp} '{remote}/{remote_name}'"])
+
+
+def dev_put(local, remote_name, sha256):
+    """remote_put into the dev folder, and nowhere else (#26): `remote_name` is one or two plain file names
+    joined by "/", so neither the upload nor its temporary file can land outside /dev/."""
+    parts = remote_name.split("/") if isinstance(remote_name, str) else []
+    if not 1 <= len(parts) <= 2 or any(plain_name_problem(p) for p in parts):
+        raise Refused(f"refusing to upload {remote_name!r}: not a plain path inside {DEV_REMOTE}")
+    remote_put(local, remote_name, sha256, remote=DEV_REMOTE)
 
 
 def verify_live(doc, keys):
@@ -341,6 +436,198 @@ def signing_key(dry_run):
         raise Refused(str(e))
 
 
+def http_status(url, login=None, timeout=20):
+    """-> (HTTP status, body) for a GET of `url`, with HTTP Basic `login` ("user:password") when given; raises on
+    a transport failure."""
+    headers = {"User-Agent": "ffb-coop-publish"}
+    if login:
+        headers["Authorization"] = "Basic " + base64.b64encode(login.encode("utf-8")).decode("ascii")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, b""
+
+
+def check_dev_gate():
+    """Refuse before uploading anything unless coopmods.com/dev/ answers 401 without a login: a dev file put up
+    while the gate is not deployed would be public (site/README.md, "The dev channel")."""
+    try:
+        code, body = http_status(DEV_GAMES_URL)
+    except Exception as e:   # noqa: BLE001 -- any network failure
+        raise Refused(f"cannot read {DEV_GAMES_URL}: {e}")
+    if code != 401:
+        raise Refused(f"{DEV_GAMES_URL} answered HTTP {code} without a login, not 401 -- the dev gate is not up; "
+                      "deploy the site block in site/README.md first")
+
+
+def ssh_read(path):
+    """-> the text of a file on the server, or None when it is not there."""
+    r = run(["ssh", "-o", "ConnectTimeout=15", HOST, f"cat '{path}'"], check=False)
+    return r.stdout if r.returncode == 0 else None
+
+
+def remote_exists(path):
+    return run(["ssh", "-o", "ConnectTimeout=15", HOST, f"test -f '{path}'"], check=False).returncode == 0
+
+
+def fetch_live_dev_games():
+    """The live dev games.json, read over ssh (publishing needs no dev login). None when there is none."""
+    text = ssh_read(f"{DEV_REMOTE}/games.json")
+    if text is None:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def verify_dev_live(urls, games_text):
+    """After a dev publish: every published URL still answers 401 without a login (nothing went public), and,
+    with FFB_DEV_LOGIN set, games.json answers the published bytes with it."""
+    for url in urls:
+        code, _ = http_status(url)
+        if code != 401:
+            raise Refused(f"{url} answered HTTP {code} without a login -- the dev gate is not covering it")
+    login = os.environ.get(DEV_LOGIN_ENV)
+    if login:
+        code, body = http_status(DEV_GAMES_URL, login=login)
+        if code != 200 or body != games_text.encode("utf-8"):
+            raise Refused(f"{DEV_GAMES_URL} with {DEV_LOGIN_ENV} does not answer the published games.json "
+                          f"(HTTP {code})")
+        print(f"verified with the dev login: {DEV_GAMES_URL}")
+    else:
+        print(f"{DEV_LOGIN_ENV} not set: the dev files were checked by sha256 on the server, not read back over https")
+
+
+def write_signed(path, text, key, keys):
+    """Writes `text` to `path` and, with a key, `path`.sig beside it, checked against `keys`. Never leaves a .sig
+    of older bytes behind."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    sig = path + signing.SIG_SUFFIX
+    if os.path.exists(sig):
+        os.remove(sig)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    if key is not None:
+        signing.sign_file(path, key)
+        with open(path, "rb") as f, open(sig, "rb") as g:
+            if not signing.verify_bytes(f.read(), g.read(), keys):
+                raise Refused(f"{sig} does not verify against {signing.TRUSTED_KEYS_H}")
+        print(f"signed {sig} with {signing.public_hex(key)}")
+    return sig
+
+
+def sha256_of(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def publish_dev(a):
+    """The dev channel's publish (#26). See the module docstring."""
+    if a.release is not None:
+        raise Refused("--release is the public channel's; a dev build is published with --dev alone")
+    if a.no_exe and a.exe_given:
+        raise Refused("--exe and --no-exe together")
+    packages = a.package or []
+    if packages and not a.package_version:
+        raise Refused("--package needs --package-version")
+    if a.optional and not packages:
+        raise Refused("--optional without --package")
+    if a.no_exe and not packages:
+        raise Refused("--no-exe and no --package: nothing to publish")
+    run_gates(a.dry_run)
+    with open(a.games_in, encoding="utf-8") as f:
+        games_in = json.load(f)
+
+    try:
+        live = fetch_live_dev_games()
+    except Exception as e:   # noqa: BLE001 -- any ssh failure
+        if not a.dry_run:
+            raise Refused(f"cannot read the live dev games.json on the server: {e}")
+        print(f"warning: live dev games.json not read ({e}); skipped the live comparison")
+        live = None
+
+    exe = None
+    if a.no_exe:
+        if not isinstance(live, dict) or validate_games_json(live):
+            raise Refused("--no-exe keeps the live dev launcher, and there is no valid live dev games.json")
+        launcher = live["launcher"]
+    else:
+        if not os.path.exists(a.exe):
+            raise Refused(f"missing: {a.exe} (build it first: cmake --build build --config Release)")
+        with open(a.exe, "rb") as f:
+            exe = f.read()
+        launcher = launcher_block(exe, DEV_LAUNCHER_URL)
+        if not is_dev_version(launcher["version"]):
+            raise Refused(f"the exe says {launcher['version']}, not a dev version MAJOR.0.D with D >= 1 -- build "
+                          "FFB Co-op - dev.exe, and bump FFB_DEV_BUILD in src/ffb_version.h")
+        if a.version and a.version != launcher["version"]:
+            raise Refused(f"--version {a.version} but the exe says {launcher['version']}")
+    doc = build_games_json(games_in, launcher=launcher)
+    if not under_dev(doc["launcher"]["url"]):
+        raise Refused(f"the dev launcher URL {doc['launcher']['url']} is not under {DEV_URL}/")
+    check_against_live(doc, live)
+
+    by_id = {g["id"]: g for g in doc["games"]}
+    manifests = []   # (game id, folder, manifest doc)
+    for game_id, folder in packages:
+        game = by_id.get(game_id)
+        if game is None:
+            raise Refused(f"--package {game_id}: no such game in {os.path.relpath(a.games_in, REPO)}")
+        if game["manifest"] != dev_manifest_url(game_id):
+            raise Refused(f"--package {game_id}: its manifest in {os.path.relpath(a.games_in, REPO)} is "
+                          f"{game['manifest']}, not {dev_manifest_url(game_id)}")
+        manifests.append((game_id, folder, build_package_manifest(folder, a.package_version, a.optional or ())))
+    published = {m[0] for m in manifests}
+    for g in doc["games"]:
+        if under_dev(g["manifest"]) and g["id"] not in published:
+            if g["manifest"] != dev_manifest_url(g["id"]):
+                raise Refused(f"{g['id']}: dev manifest {g['manifest']} is not {dev_manifest_url(g['id'])}")
+            if a.dry_run:
+                print(f"note: {g['id']} reads {g['manifest']}; a real publish refuses unless it is live")
+            elif not remote_exists(f"{DEV_REMOTE}/{g['id']}/manifest.json"):
+                raise Refused(f"{g['id']} reads {g['manifest']}, which is not published -- add "
+                              f"--package {g['id']} <folder>, or point it at the public manifest")
+    key = signing_key(a.dry_run)
+    keys = signing.trusted_keys(REPO)
+
+    out_dir = a.out or DEV_OUT_DIR
+    games_text = dumps(doc)
+    games_out = os.path.join(out_dir, "games.json")
+    games_sig = write_signed(games_out, games_text, key, keys)
+    written = []
+    for game_id, folder, m in manifests:
+        path = os.path.join(out_dir, game_id, "manifest.json")
+        written.append((game_id, folder, m, path, write_signed(path, dumps(m), key, keys)))
+        print(f"wrote {path}: {game_id} {m['version']}, {len(m['files'])} file(s)")
+    print(f"wrote {games_out}: dev launcher {doc['launcher']['version']}, sha256 {doc['launcher']['sha256']}, "
+          f"{len(doc['games'])} game(s)")
+    if a.dry_run:
+        print("dry run: nothing uploaded")
+        return
+
+    check_dev_gate()
+    dirs = " ".join(f"'{DEV_REMOTE}/{d}'" for d in ["launcher"] + [w[0] for w in written])
+    run(["ssh", "-o", "ConnectTimeout=15", HOST, f"mkdir -p {dirs}"])
+    urls = [DEV_GAMES_URL, DEV_SIG_URL]
+    if exe is not None:
+        dev_put(a.exe, f"launcher/{DEV_EXE_NAME}", doc["launcher"]["sha256"])
+        urls.append(DEV_LAUNCHER_URL)
+    # Each package's files, then its .sig, then its manifest; games.json.sig and games.json LAST -- the same
+    # order as the public publish, so no reader is sent to bytes that are not up yet.
+    for game_id, folder, m, path, sig in written:
+        for f in m["files"]:
+            dev_put(os.path.join(folder, f["name"]), f"{game_id}/{f['name']}", f["sha256"])
+        dev_put(sig, f"{game_id}/manifest.json{signing.SIG_SUFFIX}", sha256_of(sig))
+        dev_put(path, f"{game_id}/manifest.json", sha256_of(path))
+        urls.append(dev_manifest_url(game_id))
+    dev_put(games_sig, f"games.json{signing.SIG_SUFFIX}", sha256_of(games_sig))
+    dev_put(games_out, "games.json", sha256_of(games_out))
+    verify_dev_live(urls, games_text)
+    print("PUBLISHED (dev)", DEV_GAMES_URL)
+
+
 # ---- main ------------------------------------------------------------------------------------------
 
 def publish(a):
@@ -352,6 +639,7 @@ def publish(a):
     with open(a.games_in, encoding="utf-8") as f:
         games_in = json.load(f)
     doc = build_games_json(games_in, exe_bytes)
+    check_no_dev_urls(doc)
     ver = doc["launcher"]["version"]
     if a.release is not None and release_version(a.release) != ver:
         raise Refused(f"--release {a.release} is {release_version(a.release)} but the exe says {ver} -- "
@@ -405,16 +693,36 @@ def publish(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--exe", default=DEFAULT_EXE, help="the built launcher (default: build/Release/FFB Co-op.exe)")
+    ap.add_argument("--dev", action="store_true", help="publish to the dev channel, coopmods.com/dev/ (#26)")
+    ap.add_argument("--exe", help="the built launcher (default: build/Release/FFB Co-op.exe, or FFB Co-op - dev.exe "
+                                  "with --dev)")
+    ap.add_argument("--no-exe", action="store_true", help="--dev: keep the live dev launcher, publish a package only")
+    ap.add_argument("--package", nargs=2, action="append", metavar=("GAME_ID", "DIR"),
+                    help="--dev: publish every file in DIR as GAME_ID's dev package")
+    ap.add_argument("--package-version", help="--dev: the version the package's manifest shows (N or X.Y.Z)")
+    ap.add_argument("--optional", action="append", metavar="NAME", help="--dev: a package file that is not required")
     ap.add_argument("--release", metavar="N", help="release N (v1, v2, ...): refuse unless the exe is N.0.0, "
                                                    "which is what games.json then carries")
     ap.add_argument("--version", help="refuse unless the exe's version resource says exactly this")
-    ap.add_argument("--games-in", default=GAMES_IN, help="the games list source (default: site/games.json.in)")
-    ap.add_argument("--out", default=os.path.join(REPO, "site", "games.json"), help="where games.json is written")
+    ap.add_argument("--games-in", help="the games list source (default: site/games.json.in, or "
+                                       "site/dev-games.json.in with --dev)")
+    ap.add_argument("--out", help="where games.json is written (default: site/games.json); with --dev the folder "
+                                  "games.json and the manifests are written to (default: site/dev)")
     ap.add_argument("--dry-run", action="store_true", help="check and write games.json; upload nothing")
     a = ap.parse_args(argv)
+    a.exe_given = a.exe is not None
+    if not a.dev:
+        extra = [f for f, v in (("--no-exe", a.no_exe), ("--package", a.package),
+                                ("--package-version", a.package_version), ("--optional", a.optional)) if v]
+        if extra:
+            print(f"REFUSED: {', '.join(extra)} only go with --dev", file=sys.stderr)
+            return 1
+    a.exe = a.exe or (DEV_DEFAULT_EXE if a.dev else DEFAULT_EXE)
+    a.games_in = a.games_in or (DEV_GAMES_IN if a.dev else GAMES_IN)
+    if not a.dev:
+        a.out = a.out or os.path.join(REPO, "site", "games.json")
     try:
-        publish(a)
+        publish_dev(a) if a.dev else publish(a)
     except Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 1

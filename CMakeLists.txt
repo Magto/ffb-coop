@@ -6,7 +6,8 @@
 #   cmake --build build --config Release
 #   ctest --test-dir build -C Release
 #
-# -> "build\Release\FFB Co-op.exe" with a Visual Studio (multi-config) generator.
+# -> "build\Release\FFB Co-op.exe" and "build\Release\FFB Co-op - dev.exe" (#26)
+# with a Visual Studio (multi-config) generator.
 cmake_minimum_required(VERSION 3.21)
 project(ffb_coop LANGUAGES C CXX RC)
 
@@ -23,22 +24,36 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 option(FFB_BUILD_TESTS "build the unit tests in tests/" ON)
 
-add_executable(ffb_coop src/main.cpp res/ffb_coop.rc)
-# Self-update (#5): the logic, and its Windows side (WinHTTP, BCrypt).
-target_sources(ffb_coop PRIVATE src/selfupdate.cpp src/selfupdate_win.cpp)
-target_link_libraries(ffb_coop PRIVATE winhttp bcrypt)
-# The start flow (#6) and the pieces it wires together: games.json and the
-# finder (#3), the package update and its network (#4).
-target_sources(ffb_coop PRIVATE src/app.cpp src/app_win.cpp src/games.cpp src/finder.cpp
-    src/plain_name.cpp src/package.cpp src/net.cpp)
-# The ed25519 signature check on games.json and the manifest (#21); the
-# arithmetic is TweetNaCl, public domain (THIRD-PARTY-NOTICES.md).
-target_sources(ffb_coop PRIVATE src/signature.cpp third_party/tweetnacl.c)
-# The file name players see, space and all. The target keeps a plain name.
-set_target_properties(ffb_coop PROPERTIES OUTPUT_NAME "FFB Co-op")
-target_compile_definitions(ffb_coop PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
-target_compile_options(ffb_coop PRIVATE /W3)
-target_include_directories(ffb_coop PRIVATE src third_party)
+# FFB Co-op.exe and FFB Co-op - dev.exe (#26) are one source built twice: the dev
+# exe is the same code with FFB_DEV_CHANNEL defined, which picks the dev channel
+# in src/channel.cpp (coopmods.com/dev/, the dev login, the `FFB Co-op dev\`
+# package folder) and the dev names and version in src/ffb_version.h. Not a fork:
+# nothing else differs.
+function(ffb_coop_exe target output_name)
+    add_executable(${target} src/main.cpp res/ffb_coop.rc)
+    # Self-update (#5): the logic, and its Windows side (WinHTTP, BCrypt).
+    target_sources(${target} PRIVATE src/selfupdate.cpp src/selfupdate_win.cpp)
+    # crypt32: DPAPI, which keeps the dev login encrypted to the Windows account.
+    target_link_libraries(${target} PRIVATE winhttp bcrypt crypt32)
+    # The start flow (#6) and the pieces it wires together: games.json and the
+    # finder (#3), the package update and its network (#4), the channel (#26).
+    target_sources(${target} PRIVATE src/app.cpp src/app_win.cpp src/games.cpp src/finder.cpp
+        src/plain_name.cpp src/package.cpp src/net.cpp src/channel.cpp)
+    # The ed25519 signature check on games.json and the manifest (#21); the
+    # arithmetic is TweetNaCl, public domain (THIRD-PARTY-NOTICES.md).
+    target_sources(${target} PRIVATE src/signature.cpp third_party/tweetnacl.c)
+    # The file name players see, space and all. The target keeps a plain name.
+    set_target_properties(${target} PROPERTIES OUTPUT_NAME "${output_name}")
+    target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    target_compile_options(${target} PRIVATE /W3)
+    target_include_directories(${target} PRIVATE src third_party)
+endfunction()
+
+ffb_coop_exe(ffb_coop "FFB Co-op")
+ffb_coop_exe(ffb_coop_dev "FFB Co-op - dev")
+# The build switch. Target definitions reach res/ffb_coop.rc too, so the dev
+# exe's version resource carries the dev name and version.
+target_compile_definitions(ffb_coop_dev PRIVATE FFB_DEV_CHANNEL)
 # res/ffb_coop.rc includes ffb_version.h, so the version resource and the
 # printed version line come from the same numbers.
 set_property(SOURCE res/ffb_coop.rc APPEND PROPERTY INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/src)

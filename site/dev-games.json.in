@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "games": [
+    {
+      "id": "mewgenics",
+      "name": "Mewgenics",
+      "exe": "Mewgenics.exe",
+      "steam_appid": 0,
+      "manifest": "https://coopmods.com/dev/mewgenics/manifest.json",
+      "launcher": "mewcoop_loader.exe"
+    }
+  ]
+}

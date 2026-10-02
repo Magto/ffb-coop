@@ -275,6 +275,83 @@ beside it until mewgenics-coop#553 teaches it to check.
   genuine signature. Self-update never goes to a lower version, but an older package would install.
 - **The launcher's own exe** is not Authenticode-signed (SmartScreen); that is a separate issue.
 
+## Dev channel
+
+Added by #26, for trying a build before it reaches every player. Martin, 2026-10-02 20:05 (mewgenics-coop lead
+pane): "do a seperate self-updating dev chanel that gets the exe from a passworded site on coopmods.com. And it will
+be me and budda to start with. … I want it to update flawlessly like the real ffb coop does. Could they live in the
+same folder and the dev files just ends up in ~/ffb coop dev/ ?"
+
+### One source, two exes
+
+`FFB Co-op - dev.exe` is the same source as `FFB Co-op.exe`, built with one switch (`FFB_DEV_CHANNEL`, the
+`ffb_coop_dev` target): `cmake --build build --config Release` makes both. The switch changes only the values in
+this table (`src/channel.cpp`) and the names and version in `src/ffb_version.h`; the flow, the signature check, the
+self-update and the package update are the same code.
+
+| | `FFB Co-op.exe` | `FFB Co-op - dev.exe` |
+|---|---|---|
+| games.json | `https://coopmods.com/games.json` | `https://coopmods.com/dev/games.json` |
+| Its own update | `https://coopmods.com/launcher/FFB%20Co-op.exe` | `https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` |
+| A game's manifest | whatever games.json names (Mewgenics: `https://mewgenics.coopmods.com/update/manifest.json`) | whatever the dev games.json names (Mewgenics: `https://coopmods.com/dev/mewgenics/manifest.json`) |
+| Package folder | `<game folder>\FFB Co-op\` | `<game folder>\FFB Co-op dev\` |
+| Login | none | the dev login, below |
+| Version | `N.0.0` (vN) | `N.0.D`: dev build D, D at least 1 (`FFB_DEV_BUILD`) |
+| Title and first line | `FFB Co-op vN`, `FFB Co-op N.0.0` | `FFB Co-op - dev vN`, `FFB Co-op - dev N.0.D` |
+
+### Side by side in one game folder
+
+Both exes sit next to the game's exe. Martin asked for "~/ffb coop dev/"; the folder is `FFB Co-op dev\` inside the
+game folder, beside `FFB Co-op\`, as the issue's first Done bullet puts it. The dev exe reads and writes only
+`FFB Co-op dev\` (the package, the kept games.json and manifest.json, and `dev-login.bin`) and its own
+`FFB Co-op - dev.exe.new` / `FFB Co-op - dev.old.exe` during a self-update. It never reads or writes `FFB Co-op\`:
+offline with only the public package installed it says it is not installed rather than start the public one. The
+public exe never fetches a URL under `https://coopmods.com/dev/` and never reads `FFB Co-op dev\`;
+`tools/publish.py` refuses a public games.json that points under `/dev/`.
+
+### The same rules
+
+Everything above holds for the dev exe with the dev values: games.json and every manifest checked against the same
+trusted keys before a byte is read, signed with the same key by the same `tools/signing.py` (no paid certificate);
+the same validation; self-update only to a strictly newer version, with the size and sha256 checked, through the
+`.new` swap, restarting once; offline, unsigned or invalid starts the installed dev package with one warning, or
+shows the not-installed screen. The error screens name `FFB Co-op - dev.exe` where the public ones name
+`FFB Co-op.exe`.
+
+The dev exe sets `MEWCOOP_NOUPDATE=1` in the environment the package launcher inherits. The dev exe is the package's
+updater; the Mewgenics loader's own update reads the public manifest and would put the public build back over the
+dev one (`MEWCOOP_NOUPDATE` is the loader's existing switch for that, mewgenics-coop `loader/mewcoop_loader.cpp`).
+
+### The dev login
+
+Proposed by #26, for Martin's yes. Everything under `https://coopmods.com/dev/` is behind **HTTP Basic auth, one
+user name and password per person** (`martin`, `budda`), checked by Caddy's `basic_auth` against bcrypt hashes in
+the site block (site/README.md, "The dev channel"). Nothing secret is compiled into either exe.
+
+- **First start:** the dev exe asks at the console, once: `User name:` and `Password:` (typed as `*`). It keeps the
+  answer in `FFB Co-op dev\dev-login.bin`, encrypted with Windows DPAPI to the Windows account that typed it, so a
+  copied game folder carries no usable password. With no console to ask at (a script, ctest) it sends no login.
+- **Every fetch** of a URL that starts with `https://coopmods.com/dev/` carries `Authorization: Basic …`, and only
+  those: never the public URLs, never another host, never plain http, and never through a redirect.
+- **A refused login** (games.json answers HTTP 401): the kept login is deleted, the installed dev package starts
+  with `coopmods.com refused your dev login (HTTP 401) -- it is forgotten, and the next start asks again -- starting
+  the installed version.` (or the not-installed screen with that prefix), and the next start asks again.
+- **Revoking** one person is deleting their line in the site block; the other keeps working.
+- **Why not** the old `coop` cookie or a key built into the dev exe: either is one value shared by everyone who has
+  it, so it cannot be revoked per person, and a value built in sits in every copy of the dev exe and on the build
+  machine. A per-person password lives only in that person's head, their own `dev-login.bin` and a hash on the
+  server.
+
+Getting the first copy: download `https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` in a browser (it asks
+for the same login), or Martin hands it over; from then on it updates itself.
+
+### Publishing
+
+`python tools/publish.py --dev` (site/README.md, "The dev channel"). It puts the dev exe and/or a dev package under
+`/opt/downloads/ffb-coop-site/dev/` and nowhere else, signed with the same key, and refuses an exe that is not a dev
+version (so a release exe never lands on the dev channel, and `--release` refuses a dev exe), a version lower than the
+live dev one, and any upload while `https://coopmods.com/dev/games.json` does not answer 401 without a login.
+
 ## Network file-name rule
 
 Every name that arrives over the network and becomes a file name — `games[].exe`,
@@ -363,6 +440,7 @@ known yet, and FFB Co-op.exe assumes neither.
 | `https://coopmods.com/games.json.sig` | its signature ([Signatures](#signatures)) — served **without** the cookie |
 | `https://coopmods.com/launcher/FFB%20Co-op.exe` | the launcher's own update — served **without** the cookie |
 | `https://mewgenics.coopmods.com/update/manifest.json` and its sibling files | the Mewgenics package, already published by mewgenics-coop, already cookie-free; `manifest.json.sig` beside it from mewgenics-coop#553 |
+| `https://coopmods.com/dev/…` | the [dev channel](#dev-channel) (#26): its games.json and `.sig`, `launcher/FFB Co-op - dev.exe`, and `<game id>/manifest.json`, its `.sig` and its files -- behind the per-person dev login |
 
 The Caddyfile is a single-file bind mount: **never `sed -i` it** (that replaces the inode and the
 container keeps the old file). Edit it in place — open read/write, write, truncate — then
@@ -424,6 +502,9 @@ Later, quoted exactly:
 
 - **Versions** (2026-10-01 23:27, mewgenics-coop lead pane, #24): "file it as an ffb-coop card for
   the v1 release and prio it" — the signing launcher ships as v1, `1.0.0` on the wire ([Versions](#versions)).
+- **Dev channel** (2026-10-02 20:05, mewgenics-coop lead pane, #26): "do a seperate self-updating dev chanel
+  that gets the exe from a passworded site on coopmods.com. And it will be me and budda to start with."
+  ([Dev channel](#dev-channel); the login is proposed there for his yes).
 
 ## Defaults this spec chose
 

@@ -108,6 +108,40 @@ bool untouched(const FakeIo& io) {
            !io.warnings.empty();
 }
 
+// The dev exe (#26): the same self_update, from the same folder as the public
+// exe, under its own name and from the dev channel's URL (docs/SPEC.md "Dev
+// channel"). Written out here, not read from src/channel.cpp.
+const std::wstring kDevSelf = L"C:\\Games\\Mewgenics\\FFB Co-op - dev.exe";
+const std::wstring kDevNew  = L"C:\\Games\\Mewgenics\\FFB Co-op - dev.exe.new";
+const std::wstring kDevOld  = L"C:\\Games\\Mewgenics\\FFB Co-op - dev.old.exe";
+const std::string  kDevUrl  = "https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe";
+
+// The public exe sits beside the dev one and must come through every dev
+// update byte for byte.
+const std::string kPublicBytes = "PUBLIC-EXE-BYTES";
+
+struct DevIo : FakeIo {
+    std::vector<std::string> urls;
+    DevIo() { files[kDevSelf] = kOldBytes; files[kSelf] = kPublicBytes; }
+    std::wstring self_path() override { return kDevSelf; }
+    bool download(const std::string& url, const std::wstring& dest, std::string* hex,
+                  std::uint64_t* got) override {
+        urls.push_back(url);
+        return FakeIo::download(url, dest, hex, got);
+    }
+};
+
+LauncherBlock dev_block(const std::string& version) {
+    LauncherBlock b = block(version);
+    b.url = kDevUrl;
+    return b;
+}
+
+bool dev_untouched(const DevIo& io) {
+    return io.at(kDevSelf) == kOldBytes && !io.has(kDevNew) && io.restarts.empty() &&
+           !io.warnings.empty() && io.at(kSelf) == kPublicBytes;
+}
+
 } // namespace
 
 int main() {
@@ -273,6 +307,63 @@ int main() {
         io.files[kOld] = kOldBytes;
         self_update_sweep(io);
         CHECK(!io.has(kOld) && io.at(kSelf) == kOldBytes);
+    }
+
+    // --- the dev exe (#26): the same rules, its own name, the dev URL ---
+    CHECK(staged_path(kDevSelf) == kDevNew);
+    CHECK(old_path(kDevSelf) == kDevOld);
+    {   // a newer dev build: fetched from the dev URL, swapped under the dev name, restarted
+        DevIo io;
+        CHECK(self_update(dev_block("1.0.2"), v(1, 0, 1), io) == SelfUpdateOutcome::Restart);
+        CHECK(io.urls.size() == 1 && io.urls[0] == kDevUrl);
+        CHECK(io.at(kDevSelf) == kNewBytes);
+        CHECK(io.at(kDevOld) == kOldBytes);
+        CHECK(!io.has(kDevNew));
+        CHECK(io.restarts.size() == 1 && io.restarts[0] == kDevSelf);
+        CHECK(io.at(kSelf) == kPublicBytes && !io.has(kNew) && !io.has(kOld));
+    }
+    {   // never to the same or a lower version
+        DevIo io;
+        CHECK(self_update(dev_block("1.0.1"), v(1, 0, 1), io) == SelfUpdateOutcome::UpToDate);
+        CHECK(self_update(dev_block("1.0.0"), v(1, 0, 1), io) == SelfUpdateOutcome::UpToDate);
+        CHECK(io.downloads == 0 && io.moves == 0 && io.at(kDevSelf) == kOldBytes);
+    }
+    {   // the wrong sha256: the .new is discarded, nothing replaced
+        DevIo io;
+        io.server_sha = kOtherSha;
+        CHECK(self_update(dev_block("1.0.2"), v(1, 0, 1), io) == SelfUpdateOutcome::Failed);
+        CHECK(dev_untouched(io));
+    }
+    {   // the wrong size
+        DevIo io;
+        io.server_bytes = "SHORT";
+        CHECK(self_update(dev_block("1.0.2"), v(1, 0, 1), io) == SelfUpdateOutcome::Failed);
+        CHECK(dev_untouched(io));
+    }
+    {   // the download fails (offline, or the dev login refused): carry on as installed
+        DevIo io;
+        io.download_ok = false;
+        CHECK(self_update(dev_block("1.0.2"), v(1, 0, 1), io) == SelfUpdateOutcome::Failed);
+        CHECK(dev_untouched(io));
+    }
+    {   // the new exe cannot be put in place: the running dev exe is put back
+        DevIo io;
+        io.fail_move_no = 2;
+        CHECK(self_update(dev_block("1.0.2"), v(1, 0, 1), io) == SelfUpdateOutcome::Failed);
+        CHECK(dev_untouched(io));
+    }
+    {   // the restarted dev child never checks again
+        DevIo io;
+        io.restarted_child = true;
+        CHECK(self_update(dev_block("1.0.2"), v(1, 0, 1), io) == SelfUpdateOutcome::Skipped);
+        CHECK(io.downloads == 0);
+    }
+    {   // the sweep removes the dev .old.exe and leaves the public exe's alone
+        DevIo io;
+        io.files[kDevOld] = kOldBytes;
+        io.files[kOld]    = "PUBLIC-OLD";
+        self_update_sweep(io);
+        CHECK(!io.has(kDevOld) && io.at(kOld) == "PUBLIC-OLD");
     }
 
     return ffb_test_result();

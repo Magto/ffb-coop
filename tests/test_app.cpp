@@ -61,10 +61,12 @@ struct FakeSelfIo : ffb::SelfUpdateIo {
     std::string served;   // the bytes a successful download "wrote"
     int downloads = 0, restarts = 0;
     std::vector<std::string> warns;
+    std::vector<std::string> urls;   // every download asked for
     bool is_restarted_child() override { return false; }
     std::wstring self_path() override { return L"C:\\Games\\FFB Co-op.exe"; }
-    bool download(const std::string&, const std::wstring&, std::string* hex, std::uint64_t* got) override {
+    bool download(const std::string& url, const std::wstring&, std::string* hex, std::uint64_t* got) override {
         ++downloads;
+        urls.push_back(url);
         if (!download_ok) return false;
         *hex = ffb::sha256_hex(served);
         *got = served.size();
@@ -110,6 +112,9 @@ struct FakeIo : ffb::AppIo {
     void err(const std::string& l) override { errs.push_back(l); }
     std::FILE* package_log() override { return nullptr; }
     const std::vector<ffb::PublicKey>& trusted_keys() override { return ffb_test::test_keys(); }
+    int log_ins = 0, refusals = 0;   // the dev login hooks (#26)
+    void log_in() override { ++log_ins; }
+    void login_refused() override { ++refusals; }
 };
 
 struct TempFolder {
@@ -124,6 +129,7 @@ struct TempFolder {
     ~TempFolder() { std::error_code ec; fs::remove_all(path, ec); }
     std::string str() const { return path.u8string(); }
     fs::path pkg() const { return path / "FFB Co-op"; }
+    fs::path dev() const { return path / "FFB Co-op dev"; }   // the dev exe's package folder (#26)
 };
 
 void write(const fs::path& p, const std::string& s) {
@@ -719,6 +725,232 @@ void test_manifest_unsigned() {
     CHECK(read(t2.pkg() / kDll) == evil);
 }
 
+// --- the dev channel (#26) ------------------------------------------------------
+//
+// The same run_app with the dev channel in AppInput, as FFB Co-op - dev.exe runs
+// it. The URLs and the folder name are written out from docs/SPEC.md "Dev
+// channel", not read from src/channel.cpp; test_channel checks the table
+// against the same strings.
+
+const std::string kDevGamesUrl    = "https://coopmods.com/dev/games.json";
+const std::string kDevManifestUrl = "https://coopmods.com/dev/mewgenics/manifest.json";
+const std::string kDevBase        = "https://coopmods.com/dev/mewgenics/";
+const std::string kDevSelfUrl     = "https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe";
+const std::string kDevPrefix      = "https://coopmods.com/dev/";
+
+std::string dev_games_json(const std::string& version = "1.0.1", const std::string& sha = kSha0,
+                           std::uint64_t size = 1) {
+    return "{\"schema\":1,\"launcher\":{\"version\":\"" + version + "\",\"url\":\"" + kDevSelfUrl +
+           "\",\"sha256\":\"" + sha + "\",\"size\":" + std::to_string(size) + "},\"games\":[" +
+           "{\"id\":\"mewgenics\",\"name\":\"Mewgenics\",\"exe\":\"Mewgenics.exe\",\"steam_appid\":0,"
+           "\"manifest\":\"" + kDevManifestUrl + "\",\"launcher\":\"" + kLoader + "\"}]}";
+}
+
+const std::string kDevDllBytes = "dev dll bytes";
+
+std::string dev_manifest() {
+    auto f = [](const std::string& name, const std::string& body) {
+        return "{\"name\":\"" + name + "\",\"size\":" + std::to_string(body.size()) + ",\"sha256\":\"" +
+               ffb::sha256_hex(body) + "\",\"required\":true}";
+    };
+    return "{\"version\":\"77.0.0\",\"files\":[" + f(kLoader, kLoaderBytes) + "," + f(kDll, kDevDllBytes) + "]}";
+}
+
+void serve_dev(FakeIo& io) {
+    io.net_.pages[kDevGamesUrl]       = {200, dev_games_json()};
+    io.net_.pages[kDevManifestUrl]    = {200, dev_manifest()};
+    io.net_.pages[kDevBase + kLoader] = {200, kLoaderBytes};
+    io.net_.pages[kDevBase + kDll]    = {200, kDevDllBytes};
+}
+
+ffb::AppInput dev_input(const TempFolder& t, const std::string& tail = "") {
+    ffb::AppInput in = input(t, tail);
+    in.channel = &ffb::dev_channel();
+    in.running = {1, 0, 1};
+    return in;
+}
+
+void install_dev(const TempFolder& t) {
+    write(t.dev() / "games.json", dev_games_json());
+    write(t.dev() / "manifest.json", dev_manifest());
+    write(t.dev() / kLoader, kLoaderBytes);
+    write(t.dev() / kDll, kDevDllBytes);
+}
+
+bool all_under(const std::vector<std::string>& urls, const std::string& prefix) {
+    for (const auto& u : urls) if (u.compare(0, prefix.size(), prefix) != 0) return false;
+    return true;
+}
+
+bool any_has(const std::vector<std::string>& urls, const std::string& part) {
+    for (const auto& u : urls) if (u.find(part) != std::string::npos) return true;
+    return false;
+}
+
+void test_dev_beside_public() {
+    std::printf("dev exe beside an installed FFB Co-op\\: installs into FFB Co-op dev\\, FFB Co-op\\ untouched\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    install(t);
+    const auto public_before = snapshot(t.pkg());
+    FakeIo io;
+    serve_all(io);   // the public channel is live too; the dev exe must not read it
+    serve_dev(io);
+    CHECK(ffb::run_app(dev_input(t, "-x"), io) == 0);
+    CHECK(io.log_ins == 1);
+    CHECK(io.refusals == 0);
+    CHECK(read(t.dev() / kLoader) == kLoaderBytes);
+    CHECK(read(t.dev() / kDll) == kDevDllBytes);
+    CHECK(read(t.dev() / "games.json") == dev_games_json());
+    CHECK(read(t.dev() / "manifest.json") == dev_manifest());
+    CHECK(snapshot(t.pkg()) == public_before);
+    CHECK(read(t.pkg() / kDll) == kDllBytes);
+    CHECK(!io.net_.asked.empty() && all_under(io.net_.asked, kDevPrefix));
+    CHECK(io.starts.size() == 1);
+    if (io.starts.size() == 1) {
+        CHECK(io.starts[0].exe == (t.dev() / kLoader).u8string());
+        CHECK(io.starts[0].workdir == t.dev().u8string());
+        CHECK(io.starts[0].cmdline == q(t.dev() / kLoader) + " " + q(t.path / "Mewgenics.exe") + " -x");
+    }
+    CHECK(io.errs.empty());
+    CHECK(io.outs.size() >= 1 && io.outs[0].rfind("FFB Co-op", 0) == 0);
+}
+
+void test_public_never_dev() {
+    std::printf("public exe with a dev install beside it: never asks the dev channel, never logs in, dev folder untouched\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    install_dev(t);
+    const auto dev_before = snapshot(t.dev());
+    FakeIo io;
+    serve_all(io);
+    serve_dev(io);
+    CHECK(ffb::run_app(input(t), io) == 0);
+    CHECK(io.log_ins == 0);
+    CHECK(!io.net_.asked.empty() && !any_has(io.net_.asked, "/dev/"));
+    CHECK(io.starts.size() == 1 && io.starts[0].exe == (t.pkg() / kLoader).u8string());
+    CHECK(snapshot(t.dev()) == dev_before);
+
+    std::printf("public exe offline with only a dev install: not installed (it never borrows FFB Co-op dev\\)\n");
+    TempFolder t2;
+    write(t2.path / "Mewgenics.exe", "game");
+    install_dev(t2);
+    FakeIo io2;   // every URL a 404
+    CHECK(ffb::run_app(input(t2), io2) == 1);
+    CHECK(io2.starts.empty() && io2.keys == 1);
+    CHECK(!fs::exists(t2.pkg()));
+}
+
+void test_dev_offline() {
+    std::printf("dev exe offline with only FFB Co-op\\ installed: not installed (it never borrows FFB Co-op\\)\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    install(t);
+    const auto public_before = snapshot(t.pkg());
+    FakeIo io;   // every URL a 404
+    CHECK(ffb::run_app(dev_input(t), io) == 1);
+    CHECK(io.errs.size() == 2);
+    if (io.errs.size() == 2)
+        CHECK(io.errs[0] == "Could not reach coopmods.com, and FFB Co-op is not installed in " + t.str() +
+                                " yet. Connect to the internet and start it again.");
+    CHECK(io.starts.empty());
+    CHECK(snapshot(t.pkg()) == public_before);
+
+    std::printf("dev exe offline with FFB Co-op dev\\ installed: one warning, the installed dev package starts\n");
+    install_dev(t);
+    FakeIo io2;
+    CHECK(ffb::run_app(dev_input(t), io2) == 0);
+    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
+    CHECK(io2.starts.size() == 1 && io2.starts[0].exe == (t.dev() / kLoader).u8string());
+    CHECK(io2.self_.downloads == 0);
+    CHECK(snapshot(t.pkg()) == public_before);
+}
+
+void test_dev_login_refused() {
+    std::printf("dev games.json answers 401: the login is forgotten, the installed dev package starts\n");
+    TempFolder t;
+    write(t.path / "Mewgenics.exe", "game");
+    install_dev(t);
+    FakeIo io;
+    serve_dev(io);
+    io.net_.pages[kDevGamesUrl] = {401, ""};
+    CHECK(ffb::run_app(dev_input(t), io) == 0);
+    CHECK(io.refusals == 1);
+    CHECK(io.errs.size() == 1 &&
+          io.errs[0] == "coopmods.com refused your dev login (HTTP 401) -- it is forgotten, and the next start "
+                        "asks again -- starting the installed version.");
+    CHECK(io.self_.downloads == 0);
+    CHECK(io.starts.size() == 1);
+
+    std::printf("the public exe never treats a 401 as a login problem\n");
+    TempFolder t2;
+    write(t2.path / "Mewgenics.exe", "game");
+    install(t2);
+    FakeIo io2;
+    io2.net_.pages[ffb::kGamesJsonUrl] = {401, ""};
+    CHECK(ffb::run_app(input(t2), io2) == 0);
+    CHECK(io2.refusals == 0 && io2.log_ins == 0);
+    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
+}
+
+void test_dev_self_update() {
+    std::printf("dev exe: a newer dev launcher that checks out is fetched from the dev URL and restarts\n");
+    {
+        TempFolder t;
+        write(t.path / "Mewgenics.exe", "game");
+        FakeIo io;
+        serve_dev(io);
+        io.self_.download_ok = true;
+        io.self_.served      = "new dev exe";
+        io.net_.pages[kDevGamesUrl] = {200, dev_games_json("1.0.2", ffb::sha256_hex("new dev exe"), 11)};
+        CHECK(ffb::run_app(dev_input(t), io) == 0);
+        CHECK(io.self_.restarts == 1);
+        CHECK(io.self_.urls.size() == 1 && io.self_.urls[0] == kDevSelfUrl);
+        CHECK(io.starts.empty());
+    }
+    std::printf("dev exe: the same or a lower dev version is not downloaded\n");
+    for (const char* ver : {"1.0.1", "1.0.0"}) {
+        TempFolder t;
+        write(t.path / "Mewgenics.exe", "game");
+        FakeIo io;
+        serve_dev(io);
+        io.self_.download_ok = true;
+        io.net_.pages[kDevGamesUrl] = {200, dev_games_json(ver)};
+        CHECK(ffb::run_app(dev_input(t), io) == 0);
+        CHECK(io.self_.downloads == 0);
+        CHECK(io.starts.size() == 1);
+    }
+    std::printf("dev exe: a dev games.json without a valid signature is refused, no self-update\n");
+    for (const BadSig& b : bad_sigs("games.json", kDevGamesUrl + ".sig",
+                                    dev_games_json("1.0.2", ffb::sha256_hex("new dev exe"), 11), dev_games_json())) {
+        TempFolder t;
+        write(t.path / "Mewgenics.exe", "game");
+        install_dev(t);
+        FakeIo io;
+        serve_dev(io);
+        io.self_.download_ok = true;
+        io.self_.served      = "new dev exe";
+        io.net_.pages[kDevGamesUrl]          = {200, dev_games_json("1.0.2", ffb::sha256_hex("new dev exe"), 11)};
+        io.net_.pages[kDevGamesUrl + ".sig"] = {b.status, b.body};
+        CHECK(ffb::run_app(dev_input(t), io) == 0);
+        CHECK(io.errs.size() == 1 && io.errs[0] == kUnsignedPre + b.reason + kInstalledPost);
+        CHECK(io.self_.downloads == 0);
+        CHECK(io.starts.size() == 1);
+    }
+}
+
+void test_dev_none_found() {
+    std::printf("dev exe, no game: the screen names FFB Co-op - dev.exe\n");
+    TempFolder t;
+    FakeIo io;
+    serve_dev(io);
+    CHECK(ffb::run_app(dev_input(t), io) == 1);
+    CHECK(io.errs.size() == 4);
+    if (io.errs.size() == 4)
+        CHECK(io.errs[2] == "Put FFB Co-op - dev.exe next to the game's exe and start it again.");
+    CHECK(!fs::exists(t.dev()) && !fs::exists(t.pkg()));
+}
+
 }  // namespace
 
 int main() {
@@ -745,6 +977,12 @@ int main() {
     test_games_json_unsigned();
     test_games_json_default_keys();
     test_manifest_unsigned();
+    test_dev_beside_public();
+    test_public_never_dev();
+    test_dev_offline();
+    test_dev_login_refused();
+    test_dev_self_update();
+    test_dev_none_found();
     std::printf("every key wait came after \"Press any key to exit.\"\n");
     CHECK(g_bad_waits == 0);
     return ffb_test_result();
