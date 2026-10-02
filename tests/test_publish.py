@@ -645,7 +645,7 @@ class Dev(unittest.TestCase):
                         mock.patch.object(publish, "http_status", side_effect=self.server.http_status),
                         mock.patch.dict(os.environ, {}, clear=False)]
         for p in self.patches: p.start()
-        os.environ.pop(publish.DEV_LOGIN_ENV, None)
+        os.environ.pop(publish.DEV_PASSWORD_ENV, None)
 
     def tearDown(self):
         for p in self.patches: p.stop()

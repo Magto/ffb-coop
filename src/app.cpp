@@ -164,8 +164,7 @@ int offline_start(const AppInput& in, AppIo& io, const std::string& prefix) {
 }
 
 const char* const kUnreachable = "Could not reach coopmods.com";
-const char* const kLoginRefused =
-    "coopmods.com refused your dev login (HTTP 401) -- it is forgotten, and the next start asks again";
+const char* const kLoginRefused = "coopmods.com refused the dev password (HTTP 401)";
 
 std::string unreadable(const std::string& reason) {
     return "coopmods.com sent a file this version cannot read (" + reason + ")";
@@ -183,16 +182,13 @@ int run_app(const AppInput& in, AppIo& io) {
     // nothing else -- no network, no folder. Anything more is passed on.
     if (in.arg_tail.substr(0, in.arg_tail.find_last_not_of(" \t") + 1) == kVersionSwitch) return 0;
     self_update_sweep(io.self_update_io());
-    const bool has_login = in.channel->login_prefix != nullptr;
-    if (has_login) io.log_in();
 
     // --- 1. games.json ---
     std::string body;
     const int status = get_body(io.net(), in.channel->games_json_url, &body);
-    if (status == 401 && has_login) {
-        io.login_refused();
-        return offline_start(in, io, kLoginRefused);
-    }
+    // The dev channel's password was refused: start what is installed, as when
+    // offline. The public channel sends no password, so a 401 is just unreachable.
+    if (status == 401 && in.channel->login_prefix) return offline_start(in, io, kLoginRefused);
     if (status != 200) return offline_start(in, io, kUnreachable);
     // Its signature, over the exact bytes, before any of them is parsed.
     const std::string sig_url = signature_url(in.channel->games_json_url);

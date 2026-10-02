@@ -66,13 +66,6 @@ public:
     // The public keys games.json and the manifest must be signed with: the
     // compiled-in ones (src/trusted_keys.h). A test hands in its own.
     virtual const std::vector<PublicKey>& trusted_keys() { return ffb::trusted_keys(); }
-
-    // A channel with a login (the dev channel, #26): called once before
-    // games.json is fetched, so the Windows side can load or ask for it, and
-    // again if coopmods.com answers games.json with HTTP 401, so it can forget
-    // the refused one. The public channel never calls either.
-    virtual void log_in() {}
-    virtual void login_refused() {}
 };
 
 struct AppInput {

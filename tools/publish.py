@@ -36,8 +36,8 @@ The dev channel (#26, docs/SPEC.md "Dev channel") -- FFB Co-op - dev.exe and dev
                                   [--package GAME_ID DIR --package-version V [--optional NAME ...]] [--dry-run]
 
 Everything it writes on the server is under /opt/downloads/ffb-coop-site/dev/, served at coopmods.com/dev/ behind
-the dev login; it never touches a public file (dev_put refuses any other path). The same gates, the same signing key,
-the same version rules against the live dev games.json (read over ssh: publishing needs no login). The exe must be a
+the dev password; it never touches a public file (dev_put refuses any other path). The same gates, the same signing key,
+the same version rules against the live dev games.json (read over ssh: publishing needs no password). The exe must be a
 dev version MAJOR.0.D with D >= 1, which no release exe ever is; --release is refused with --dev. The games list is
 site/dev-games.json.in. --package writes a manifest for every file in DIR (all required except --optional ones),
 signs it and uploads it to coopmods.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
@@ -62,7 +62,7 @@ DEFAULT_EXE = os.path.join(REPO, "build", "Release", EXE_NAME)
 GAMES_IN = os.path.join(REPO, "site", "games.json.in")
 GATES = ("tools/doc_rules.sh", "tools/scan_rules.sh")   # DOC_RULES_CMD, SCAN_RULES_CMD
 
-# The dev channel (#26): one folder on the server, one URL prefix behind the dev login.
+# The dev channel (#26): one folder on the server, one URL prefix behind the shared dev password.
 DEV_REMOTE = REMOTE + "/dev"
 DEV_URL = URL + "/dev"
 DEV_EXE_NAME = "FFB Co-op - dev.exe"
@@ -72,7 +72,10 @@ DEV_SIG_URL = DEV_GAMES_URL + signing.SIG_SUFFIX
 DEV_DEFAULT_EXE = os.path.join(REPO, "build", "Release", DEV_EXE_NAME)
 DEV_GAMES_IN = os.path.join(REPO, "site", "dev-games.json.in")
 DEV_OUT_DIR = os.path.join(REPO, "site", "dev")
-DEV_LOGIN_ENV = "FFB_DEV_LOGIN"   # "user:password": optional, lets the post-publish check read the files back
+# The shared dev password, the same variable the dev exe's build reads (cmake/dev_password.cmake): optional here,
+# lets the post-publish check read games.json back as the dev exe does, with the user name "dev".
+DEV_PASSWORD_ENV = "FFB_DEV_PASSWORD"
+DEV_LOGIN_USER = "dev"
 
 
 class Refused(Exception):
@@ -493,20 +496,20 @@ def fetch_live_dev_games():
 
 def verify_dev_live(urls, games_text):
     """After a dev publish: every published URL still answers 401 without a login (nothing went public), and,
-    with FFB_DEV_LOGIN set, games.json answers the published bytes with it."""
+    with FFB_DEV_PASSWORD set, games.json answers the published bytes with the dev credential."""
     for url in urls:
         code, _ = http_status(url)
         if code != 401:
             raise Refused(f"{url} answered HTTP {code} without a login -- the dev gate is not covering it")
-    login = os.environ.get(DEV_LOGIN_ENV)
-    if login:
-        code, body = http_status(DEV_GAMES_URL, login=login)
+    password = os.environ.get(DEV_PASSWORD_ENV, "").strip()
+    if password:
+        code, body = http_status(DEV_GAMES_URL, login=f"{DEV_LOGIN_USER}:{password}")
         if code != 200 or body != games_text.encode("utf-8"):
-            raise Refused(f"{DEV_GAMES_URL} with {DEV_LOGIN_ENV} does not answer the published games.json "
+            raise Refused(f"{DEV_GAMES_URL} with {DEV_PASSWORD_ENV} does not answer the published games.json "
                           f"(HTTP {code})")
-        print(f"verified with the dev login: {DEV_GAMES_URL}")
+        print(f"verified with the dev password: {DEV_GAMES_URL}")
     else:
-        print(f"{DEV_LOGIN_ENV} not set: the dev files were checked by sha256 on the server, not read back over https")
+        print(f"{DEV_PASSWORD_ENV} not set: the dev files were checked by sha256 on the server, not read back over https")
 
 
 def write_signed(path, text, key, keys):

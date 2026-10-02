@@ -4,7 +4,7 @@
 // One source, two exes. `FFB Co-op.exe` is the public channel. `FFB Co-op -
 // dev.exe` is the same code built with FFB_DEV_CHANNEL defined (the
 // ffb_coop_dev target in CMakeLists.txt): it reads games.json from
-// coopmods.com/dev/, behind a per-person login, and installs into
+// coopmods.com/dev/, behind one shared password, and installs into
 // `FFB Co-op dev\` beside the public `FFB Co-op\`. Everything else -- the
 // signature check, the self-update rules, the package update -- is the same
 // code with these values in place of the public ones.
@@ -48,10 +48,13 @@ const Channel& this_channel();
 
 // --- the dev login ----------------------------------------------------------
 //
-// HTTP Basic, per person ("martin:<password>", "budda:<password>"), checked by
-// Caddy's basic_auth on coopmods.com/dev/* (site/README.md). Nothing secret is
-// compiled into either exe: the dev exe asks for the login once and keeps it in
-// its own package folder, encrypted to the Windows account (src/app_win.cpp).
+// HTTP Basic with one fixed credential, "dev:<the shared password>", checked by
+// Caddy's basic_auth on coopmods.com/dev/* (site/README.md). The password is
+// built into the dev exe only, from outside the repo (cmake/dev_password.cmake);
+// the public exe has none and sends nothing.
+
+// The user name of the one dev credential.
+inline constexpr char kDevLoginUser[] = "dev";
 
 // RFC 4648 base64 with padding.
 std::string base64(const std::string& bytes);
@@ -63,7 +66,8 @@ std::string base64(const std::string& bytes);
 std::string login_header(const Channel& ch, const std::string& login, const std::string& url);
 
 // The login the Windows downloaders send (WinHttpNet and the self-update):
-// set once at start by the dev exe, never by the public one. Empty by default.
+// set once at start by the dev exe (src/app_win.cpp), never by the public one.
+// Empty by default.
 void set_process_login(const Channel& ch, const std::string& login);
 // login_header() for `url` with the channel and login set above.
 std::string process_login_header(const std::string& url);

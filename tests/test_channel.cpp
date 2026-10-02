@@ -81,8 +81,15 @@ int main() {
     CHECK(process_login_header("https://coopmods.com/dev/games.json") ==
           "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
     CHECK(process_login_header("https://coopmods.com/games.json") == "");
-    set_process_login(dev, "");   // what a refused login leaves
+    set_process_login(dev, "");
     CHECK(process_login_header("https://coopmods.com/dev/games.json") == "");
+
+    std::printf("the one dev credential: user name dev, the shared password after the colon\n");
+    CHECK(same(kDevLoginUser, "dev"));
+    // base64("dev:x") worked by hand: "dev" -> ZGV2, ":x" (0x3a 0x78) -> Ong=.
+    CHECK(login_header(dev, std::string(kDevLoginUser) + ":x", "https://coopmods.com/dev/games.json") ==
+          "Authorization: Basic ZGV2Ong=");
+    CHECK(login_header(pub, std::string(kDevLoginUser) + ":x", "https://coopmods.com/dev/games.json") == "");
 
     return ffb_test_result();
 }

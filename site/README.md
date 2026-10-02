@@ -106,8 +106,20 @@ in the `doc-rules` check, and `ctest` runs them as `test_publish`.
 
 ## The dev channel (#26)
 
-`FFB Co-op - dev.exe` reads everything under `https://coopmods.com/dev/`, **behind a per-person login** (HTTP Basic,
-Caddy's `basic_auth`). What the dev exe does with it, and why a per-person login, is `docs/SPEC.md`, "Dev channel".
+`FFB Co-op - dev.exe` reads everything under `https://coopmods.com/dev/`, **behind one shared password** (HTTP Basic
+with the one user `dev`, Caddy's `basic_auth`). The password is built into the dev exe; there is no prompt and no user
+name to type. What the dev exe does with it is `docs/SPEC.md`, "Dev channel".
+
+**Where the password lives.** Only outside every repo: on the lead machine in `~/.config/coopmods/ffb-dev-password`
+(WSL side, one line, mode 600). It never goes in a repo, issue, PR or log. The dev exe's build reads it
+(`cmake/dev_password.cmake`) from, in order: the environment variable `FFB_DEV_PASSWORD`, the file named by
+`FFB_DEV_PASSWORD_FILE`, then `~/.config/coopmods/ffb-dev-password` under `HOME` or `%USERPROFILE%`. With none of
+them the build fails ("FFB Co-op - dev.exe needs the dev channel's shared password"); `-DFFB_BUILD_DEV=OFF` at
+configure builds `FFB Co-op.exe` alone. From WSL on Tubal-Cain the Windows build gets the file with
+`FFB_DEV_PASSWORD_FILE=$HOME/.config/coopmods/ffb-dev-password WSLENV=FFB_DEV_PASSWORD_FILE/p cmake.exe --build …`.
+Changing the password means a new hash on the server, then a new dev exe built and published with the new one. A dev
+exe already out there carries the old password, so it cannot fetch that update: it starts what is installed with a
+one-line warning, and its owner drops the new dev exe in by hand once.
 
 | URL | File on the server | Written by |
 |---|---|---|
@@ -120,10 +132,9 @@ Caddy's `basic_auth`). What the dev exe does with it, and why a per-person login
 The lead's deploy session, by the Caddyfile steps under "Editing the Caddyfile" above (backup, edit in place, check
 the inode, validate, reload):
 
-1. **Make the two logins.** For each person, a password of at least 16 random characters, and its bcrypt hash:
-   `docker exec caddy caddy hash-password --plaintext '<password>'`. The password goes to that person only, by a
-   private channel (Martin to budda directly); the hash goes in the block below. Neither goes in any repo, issue or
-   PR.
+1. **Hash the shared password**, at deploy time, from the lead's file, without it ever being on a command line:
+   `ssh root@89.167.37.21 docker exec -i caddy caddy hash-password < ~/.config/coopmods/ffb-dev-password`.
+   The bcrypt hash it prints goes in the block below and nowhere else; the password itself never goes to the server.
 2. **Add the `/dev/*` handle** to the `coopmods.com` block, before the final `handle`:
 
 ```
@@ -134,11 +145,10 @@ coopmods.com, www.coopmods.com {
         header Cache-Control "no-store"
         file_server
     }
-    # The dev channel (#26): FFB Co-op - dev.exe and dev packages, one login per person.
+    # The dev channel (#26): FFB Co-op - dev.exe and dev packages, one shared password.
     handle /dev/* {
         basic_auth {
-            martin <bcrypt hash of Martin's password>
-            budda  <bcrypt hash of budda's password>
+            dev <bcrypt hash of the shared dev password>
         }
         header Cache-Control "no-store"
         file_server
@@ -152,20 +162,20 @@ coopmods.com, www.coopmods.com {
    On a Caddy older than 2.8 the directive is spelled `basicauth`; `caddy validate` says which.
 3. **Make sure no other site serves these files.** The same Caddyfile serves Matrix, mewgenics.coopmods.com, patreon,
    logs and others from the same `/downloads` mount; a block whose `root` is `/downloads` or `/downloads/ffb-coop-site`
-   would serve the dev files without the login on its own host, and the checks below (and `tools/publish.py --dev`)
+   would serve the dev files without the password on its own host, and the checks below (and `tools/publish.py --dev`)
    only ask `coopmods.com`. List them with `grep -n 'root' "$CADDYFILE"`: only the `coopmods.com` block may name
    `/downloads/ffb-coop-site`, and none may name `/downloads` itself. Anything else is a stop for Martin before the
    first dev publish.
 4. **Make the folder:** `mkdir -p /opt/downloads/ffb-coop-site/dev`.
 5. **Check it**, from anywhere:
    - `curl -s -o /dev/null -w '%{http_code}\n' https://coopmods.com/dev/games.json` says `401`;
-   - with a login, `curl -s -o /dev/null -w '%{http_code}\n' -u martin https://coopmods.com/dev/games.json` says `404`
-     until the first dev publish, `200` after;
+   - with the password, `curl -s -o /dev/null -w '%{http_code}\n' -K - https://coopmods.com/dev/games.json <<< "user = \"dev:$(cat ~/.config/coopmods/ffb-dev-password)\""`
+     says `404` until the first dev publish, `200` after (`-K -` keeps the password off the command line);
    - the public paths are unchanged: `curl -s https://coopmods.com/games.json` still answers games.json without a
-     login, and `https://coopmods.com/dev` (no slash) the placeholder.
+     password, and `https://coopmods.com/dev` (no slash) the placeholder.
 
 `tools/publish.py --dev` refuses to upload anything until step 5's first check says 401, so a dev file can never go
-up while the gate is missing. Revoking a person later is deleting their line and reloading.
+up while the gate is missing. There is no per-person revoke: a password that leaked is replaced (above).
 
 ### Publishing to the dev channel
 
@@ -176,7 +186,8 @@ python tools/publish.py --dev --package mewgenics <folder> --package-version 77.
 python tools/publish.py --dev --no-exe --package mewgenics <folder> --package-version 77.0.2 --optional mewcoop_ui.swf
 ```
 
-- **The exe** is `build/Release/FFB Co-op - dev.exe` (built beside `FFB Co-op.exe` by the same `cmake --build`).
+- **The exe** is `build/Release/FFB Co-op - dev.exe` (built beside `FFB Co-op.exe` by the same `cmake --build`,
+  with the shared password available as above).
   Its version must be a dev version `N.0.D` (D at least 1): bump `FFB_DEV_BUILD` and `FFB_DEV_VERSION_STR` in
   `src/ffb_version.h` before each dev publish, or the live comparison refuses it ("bump the version"), exactly as
   for the public exe. `--release` is refused with `--dev`, and the public publish refuses a dev exe.
@@ -188,4 +199,5 @@ python tools/publish.py --dev --no-exe --package mewgenics <folder> --package-ve
   pointed at its public manifest in that file).
 - Everything goes to `/opt/downloads/ffb-coop-site/dev/` and nowhere else; the temporary upload names are in that
   folder too. The signing key and the gates are the public publish's. It reads the live dev games.json over ssh, so
-  publishing needs no login; set `FFB_DEV_LOGIN=user:password` to have it also read games.json back over https.
+  publishing needs no password; set `FFB_DEV_PASSWORD` (e.g. `FFB_DEV_PASSWORD=$(cat ~/.config/coopmods/ffb-dev-password)`)
+  to have it also read games.json back over https as the dev exe does.

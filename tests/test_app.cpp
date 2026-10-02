@@ -112,9 +112,6 @@ struct FakeIo : ffb::AppIo {
     void err(const std::string& l) override { errs.push_back(l); }
     std::FILE* package_log() override { return nullptr; }
     const std::vector<ffb::PublicKey>& trusted_keys() override { return ffb_test::test_keys(); }
-    int log_ins = 0, refusals = 0;   // the dev login hooks (#26)
-    void log_in() override { ++log_ins; }
-    void login_refused() override { ++refusals; }
 };
 
 struct TempFolder {
@@ -797,8 +794,6 @@ void test_dev_beside_public() {
     serve_all(io);   // the public channel is live too; the dev exe must not read it
     serve_dev(io);
     CHECK(ffb::run_app(dev_input(t, "-x"), io) == 0);
-    CHECK(io.log_ins == 1);
-    CHECK(io.refusals == 0);
     CHECK(read(t.dev() / kLoader) == kLoaderBytes);
     CHECK(read(t.dev() / kDll) == kDevDllBytes);
     CHECK(read(t.dev() / "games.json") == dev_games_json());
@@ -817,7 +812,7 @@ void test_dev_beside_public() {
 }
 
 void test_public_never_dev() {
-    std::printf("public exe with a dev install beside it: never asks the dev channel, never logs in, dev folder untouched\n");
+    std::printf("public exe with a dev install beside it: never asks the dev channel, dev folder untouched\n");
     TempFolder t;
     write(t.path / "Mewgenics.exe", "game");
     install_dev(t);
@@ -826,7 +821,6 @@ void test_public_never_dev() {
     serve_all(io);
     serve_dev(io);
     CHECK(ffb::run_app(input(t), io) == 0);
-    CHECK(io.log_ins == 0);
     CHECK(!io.net_.asked.empty() && !any_has(io.net_.asked, "/dev/"));
     CHECK(io.starts.size() == 1 && io.starts[0].exe == (t.pkg() / kLoader).u8string());
     CHECK(snapshot(t.dev()) == dev_before);
@@ -867,7 +861,7 @@ void test_dev_offline() {
 }
 
 void test_dev_login_refused() {
-    std::printf("dev games.json answers 401: the login is forgotten, the installed dev package starts\n");
+    std::printf("dev games.json answers 401: one warning, the installed dev package starts, no prompt\n");
     TempFolder t;
     write(t.path / "Mewgenics.exe", "game");
     install_dev(t);
@@ -875,21 +869,33 @@ void test_dev_login_refused() {
     serve_dev(io);
     io.net_.pages[kDevGamesUrl] = {401, ""};
     CHECK(ffb::run_app(dev_input(t), io) == 0);
-    CHECK(io.refusals == 1);
     CHECK(io.errs.size() == 1 &&
-          io.errs[0] == "coopmods.com refused your dev login (HTTP 401) -- it is forgotten, and the next start "
-                        "asks again -- starting the installed version.");
+          io.errs[0] == "coopmods.com refused the dev password (HTTP 401) -- starting the installed version.");
+    CHECK(io.outs.size() == 2);   // the version line and "Starting ...": nothing asks for anything
+    CHECK(io.keys == 0);
     CHECK(io.self_.downloads == 0);
-    CHECK(io.starts.size() == 1);
+    CHECK(io.starts.size() == 1 && io.starts[0].exe == (t.dev() / kLoader).u8string());
 
-    std::printf("the public exe never treats a 401 as a login problem\n");
+    std::printf("dev games.json answers 401 with nothing installed: the not-installed screen\n");
+    TempFolder t1;
+    write(t1.path / "Mewgenics.exe", "game");
+    FakeIo io1;
+    serve_dev(io1);
+    io1.net_.pages[kDevGamesUrl] = {401, ""};
+    CHECK(ffb::run_app(dev_input(t1), io1) == 1);
+    CHECK(io1.errs.size() == 2);
+    if (io1.errs.size() == 2)
+        CHECK(io1.errs[0] == "coopmods.com refused the dev password (HTTP 401), and FFB Co-op is not installed in " +
+                                 t1.str() + " yet. Connect to the internet and start it again.");
+    CHECK(io1.starts.empty());
+
+    std::printf("the public exe never treats a 401 as a password problem\n");
     TempFolder t2;
     write(t2.path / "Mewgenics.exe", "game");
     install(t2);
     FakeIo io2;
     io2.net_.pages[ffb::kGamesJsonUrl] = {401, ""};
     CHECK(ffb::run_app(input(t2), io2) == 0);
-    CHECK(io2.refusals == 0 && io2.log_ins == 0);
     CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
 }
 
