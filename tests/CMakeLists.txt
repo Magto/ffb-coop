@@ -49,10 +49,11 @@ target_compile_options(test_finder PRIVATE /W3)
 add_test(NAME test_finder COMMAND test_finder)
 
 # #4: sha256 (src/net.cpp) and the package update (src/package.cpp), with a fake network.
-add_executable(test_sha256 test_sha256.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp)
+# net.cpp sends the dev credential (#26), so everything that links it links src/channel.cpp too.
+add_executable(test_sha256 test_sha256.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp)
 target_include_directories(test_sha256 PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME test_sha256 COMMAND test_sha256)
-add_executable(test_package test_package.cpp ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
+add_executable(test_package test_package.cpp ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
     ${CMAKE_SOURCE_DIR}/src/signature.cpp ${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c)
 target_include_directories(test_package PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 add_test(NAME test_package COMMAND test_package)
@@ -69,7 +70,7 @@ add_test(NAME test_signature COMMAND test_signature)
 # against a real temporary game folder.
 add_executable(test_app test_app.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
     ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
-    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp
     ${CMAKE_SOURCE_DIR}/src/signature.cpp ${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c)
 target_include_directories(test_app PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(test_app PRIVATE NOMINMAX)
@@ -78,7 +79,7 @@ add_test(NAME test_app COMMAND test_app)
 # #6: the command line handed to the package launcher -- quoting and passthrough.
 add_executable(test_cmdline test_cmdline.cpp ${CMAKE_SOURCE_DIR}/src/app.cpp ${CMAKE_SOURCE_DIR}/src/selfupdate.cpp
     ${CMAKE_SOURCE_DIR}/src/games.cpp ${CMAKE_SOURCE_DIR}/src/finder.cpp ${CMAKE_SOURCE_DIR}/src/plain_name.cpp
-    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp
+    ${CMAKE_SOURCE_DIR}/src/package.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp
     ${CMAKE_SOURCE_DIR}/src/signature.cpp ${CMAKE_SOURCE_DIR}/third_party/tweetnacl.c)
 target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(test_cmdline PRIVATE NOMINMAX)
@@ -90,6 +91,41 @@ add_executable(test_child_env test_child_env.cpp ${CMAKE_SOURCE_DIR}/src/child_e
 target_include_directories(test_child_env PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(test_child_env PRIVATE /W3)
 add_test(NAME test_child_env COMMAND test_child_env)
+
+# #26: the dev channel -- the channel table, the base64 and the rule that sends the
+# dev credential to coopmods.com/dev/ and nowhere else.
+add_executable(test_channel test_channel.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp)
+target_include_directories(test_channel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_channel PRIVATE /W3)
+add_test(NAME test_channel COMMAND test_channel)
+
+# #26: ffb_version.h built with the dev switch, as the ffb_coop_dev target builds it.
+add_executable(test_version_dev test_version_dev.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp)
+target_include_directories(test_version_dev PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(test_version_dev PRIVATE FFB_DEV_CHANNEL)
+target_compile_options(test_version_dev PRIVATE /W3)
+add_test(NAME test_version_dev COMMAND test_version_dev)
+
+# #26: the dev exe itself, the same three checks as FFB Co-op.exe's above. It
+# prints its own name and dev version, and offline it says the dev package is
+# not installed (FFB_COOP_OFFLINE=1). Only when it is built (-DFFB_BUILD_DEV=ON).
+if(TARGET ffb_coop_dev)
+    add_test(NAME ffb_coop_dev_exits_0 COMMAND ffb_coop_dev --version)
+    add_test(NAME ffb_coop_dev_version_line COMMAND ffb_coop_dev --version)
+    set_tests_properties(ffb_coop_dev_version_line PROPERTIES
+        PASS_REGULAR_EXPRESSION "^FFB Co-op - dev [0-9]+\\.0\\.[1-9][0-9]*")
+    add_test(NAME ffb_coop_dev_offline_not_installed COMMAND ffb_coop_dev)
+    set_tests_properties(ffb_coop_dev_offline_not_installed PROPERTIES
+        PASS_REGULAR_EXPRESSION "Could not reach coopmods.com, and FFB Co-op is not installed in ")
+    set_tests_properties(ffb_coop_dev_exits_0 ffb_coop_dev_version_line ffb_coop_dev_offline_not_installed
+        PROPERTIES ENVIRONMENT "FFB_COOP_OFFLINE=1" TIMEOUT 30)
+endif()
+
+# #26: cmake/dev_password.cmake -- where the dev exe's shared password is read
+# from at build time, and that a build with none stops. It never reads the real one.
+add_test(NAME test_dev_password
+         COMMAND ${CMAKE_COMMAND} -DSCRIPT=${CMAKE_SOURCE_DIR}/cmake/dev_password.cmake
+                 -DWORK=${CMAKE_CURRENT_BINARY_DIR}/dev_password_work -P ${CMAKE_CURRENT_SOURCE_DIR}/test_dev_password.cmake)
 
 # tools/publish.py, the SHIP_CMD (#7): its Python unit tests, so TEST_CMD runs them beside the C++
 # ones. CI runs the same suite in .github/workflows/doc-rules.yml.

@@ -9,6 +9,8 @@
 // should use that one instead of its own.
 #include "selfupdate.h"
 
+#include "channel.h"
+
 #include <windows.h>
 #include <winhttp.h>
 #include <bcrypt.h>
@@ -133,8 +135,16 @@ public:
         WinHttpSetTimeouts(req.h, kConnectTimeoutMs, kConnectTimeoutMs, kTransferTimeoutMs,
                            kTransferTimeoutMs);
 
-        if (!WinHttpSendRequest(req.h, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0,
-                                0, 0) ||
+        // The dev exe's own update comes from behind the dev login (#26); the
+        // same rule as WinHttpNet: under the dev prefix only, never redirected.
+        const std::wstring login = widen(process_login_header(url));
+        if (!login.empty()) {
+            DWORD never = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+            WinHttpSetOption(req.h, WINHTTP_OPTION_REDIRECT_POLICY, &never, sizeof(never));
+        }
+
+        if (!WinHttpSendRequest(req.h, login.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : login.c_str(),
+                                login.empty() ? 0 : (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
             !WinHttpReceiveResponse(req.h, nullptr))
             return false;
         DWORD status = 0, sz = sizeof(status);

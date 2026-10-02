@@ -1,9 +1,14 @@
 // app_win.cpp -- the Windows AppIo: WinHTTP for games.json and the package,
 // the self-update's own Windows side, CreateProcess for the package launcher,
-// and the console for lines and the key press. See app.h.
+// and the console for lines and the key press. See app.h. The dev exe (#26)
+// also hands the dev channel's shared password, built in, to both downloaders.
 #include "app.h"
 #include "child_env.h"
 #include "ffb_version.h"
+#ifdef FFB_DEV_CHANNEL
+// In the build tree only, written by cmake/dev_password.cmake; never committed.
+#include "ffb_dev_password.h"
+#endif
 
 #include <windows.h>
 #include <conio.h>
@@ -140,6 +145,18 @@ int run_windows() {
     in.game_folder = narrow(self_folder());
     in.arg_tail    = command_line_tail(narrow(GetCommandLineW()));
     in.running     = running_version();
+    in.channel     = &this_channel();
+    // Inherited by the package launcher (src/channel.h, launcher_env).
+    if (const char* env = in.channel->launcher_env) {
+        const std::string kv(env);
+        const size_t eq = kv.find('=');
+        SetEnvironmentVariableW(widen(kv.substr(0, eq)).c_str(), widen(kv.substr(eq + 1)).c_str());
+    }
+#ifdef FFB_DEV_CHANNEL
+    // The one dev credential (docs/SPEC.md "Dev channel"): the downloaders send
+    // it under the channel's login prefix only (src/channel.h).
+    set_process_login(*in.channel, std::string(kDevLoginUser) + ":" + FFB_DEV_PASSWORD);
+#endif
     WindowsAppIo io;
     return run_app(in, io);
 }

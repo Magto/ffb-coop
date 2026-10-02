@@ -33,8 +33,8 @@ namespace fs = std::filesystem;
 
 namespace ffb {
 
-const char* const kGamesJsonUrl    = "https://coopmods.com/games.json";
-const char* const kPackageDirName  = "FFB Co-op";
+const char* const kGamesJsonUrl    = kPublicGamesJsonUrl;
+const char* const kPackageDirName  = kPublicPackageDir;
 const char* const kCachedGamesJson = "games.json";
 const char* const kCachedManifest  = "manifest.json";
 const char* const kVersionSwitch   = "--version";
@@ -45,7 +45,7 @@ std::string join_path(const std::string& dir, const std::string& name) {
     return (fs::u8path(dir) / fs::u8path(name)).u8string();
 }
 
-std::string package_dir(const AppInput& in) { return join_path(in.game_folder, kPackageDirName); }
+std::string package_dir(const AppInput& in) { return join_path(in.game_folder, in.channel->package_dir); }
 
 bool read_text(const std::string& path, std::string* out) {
     std::ifstream f(fs::u8path(path), std::ios::binary);
@@ -89,13 +89,14 @@ std::string exe_list(const std::vector<GameEntry>& games) {
 int none_screen(const AppInput& in, AppIo& io, const std::vector<GameEntry>& games) {
     return error_screen(io, {"Could not find a FFB modded game in " + in.game_folder,
                              "Looking for: " + exe_list(games),
-                             "Put FFB Co-op.exe next to the game's exe and start it again."});
+                             std::string("Put ") + in.channel->exe_name +
+                                 " next to the game's exe and start it again."});
 }
 
 int many_screen(const AppInput& in, AppIo& io, const std::vector<GameEntry>& matches) {
     return error_screen(io, {"Found more than one FFB modded game in " + in.game_folder + ": " +
                                  exe_list(matches),
-                             "FFB Co-op.exe can only serve one game per folder."});
+                             std::string(in.channel->exe_name) + " can only serve one game per folder."});
 }
 
 int not_installed_screen(const AppInput& in, AppIo& io, const std::string& prefix) {
@@ -163,6 +164,7 @@ int offline_start(const AppInput& in, AppIo& io, const std::string& prefix) {
 }
 
 const char* const kUnreachable = "Could not reach coopmods.com";
+const char* const kLoginRefused = "coopmods.com refused the dev password (HTTP 401)";
 
 std::string unreadable(const std::string& reason) {
     return "coopmods.com sent a file this version cannot read (" + reason + ")";
@@ -183,9 +185,13 @@ int run_app(const AppInput& in, AppIo& io) {
 
     // --- 1. games.json ---
     std::string body;
-    if (get_body(io.net(), kGamesJsonUrl, &body) != 200) return offline_start(in, io, kUnreachable);
+    const int status = get_body(io.net(), in.channel->games_json_url, &body);
+    // The dev channel's password was refused: start what is installed, as when
+    // offline. The public channel sends no password, so a 401 is just unreachable.
+    if (status == 401 && in.channel->login_prefix) return offline_start(in, io, kLoginRefused);
+    if (status != 200) return offline_start(in, io, kUnreachable);
     // Its signature, over the exact bytes, before any of them is parsed.
-    const std::string sig_url = signature_url(kGamesJsonUrl);
+    const std::string sig_url = signature_url(in.channel->games_json_url);
     std::string sig;
     const int sig_status = get_body(io.net(), sig_url, &sig);
     if (sig_status == 0) return offline_start(in, io, kUnreachable);

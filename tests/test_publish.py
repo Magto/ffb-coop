@@ -569,5 +569,350 @@ class Signing(unittest.TestCase):
         self.assertEqual(signing.main(["verify", f]), 1)
 
 
+
+# ---- the dev channel (#26) --------------------------------------------------------------------------
+
+# Written out from docs/SPEC.md "Dev channel" and site/README.md, not read from tools/publish.py.
+DEV_REMOTE = "/opt/downloads/ffb-coop-site/dev"
+DEV_GAMES_URL = "https://coopmods.com/dev/games.json"
+DEV_LAUNCHER_URL = "https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe"
+DEV_MANIFEST_URL = "https://coopmods.com/dev/mewgenics/manifest.json"
+
+
+class DevServer(FakeServer):
+    """FakeServer plus the two reads the dev publish does over ssh (`cat`, `test -f`), and https that answers
+    401 to anything under /dev/ without a login, as the gate in site/README.md does. `gate` False is the gate
+    not deployed: the placeholder answers instead."""
+
+    def __init__(self):
+        super().__init__()
+        self.gate = True
+        self.https = []
+        # The reads (cat, test -f) fail as ssh does when it cannot connect: exit 255. Later commands still
+        # work, as when only the first connection drops.
+        self.ssh_down = False
+
+    def run(self, cmd, check=True):
+        shell = cmd[-1]
+        if cmd[0] == "ssh" and self.ssh_down and shell.startswith(("cat ", "test -f ")):
+            self.cmds.append(cmd)
+            if check:
+                raise publish.Refused("fake ssh failed")
+            return mock.Mock(returncode=255, stdout="", stderr="ssh: connect to host: Connection timed out")
+        if cmd[0] == "ssh" and shell.startswith("cat "):
+            self.cmds.append(cmd)
+            data = self.files.get(shell[len("cat "):].strip("'"))
+            return mock.Mock(returncode=0 if data is not None else 1, stdout=(data or b"").decode(), stderr="")
+        if cmd[0] == "ssh" and shell.startswith("test -f "):
+            self.cmds.append(cmd)
+            return mock.Mock(returncode=0 if shell[len("test -f "):].strip("'") in self.files else 1,
+                             stdout="", stderr="")
+        return super().run(cmd, check)
+
+    def http_status(self, url, login=None, timeout=20):
+        self.https.append(url)
+        if url.startswith("https://coopmods.com/dev/") and not login:
+            return (401, b"") if self.gate else (200, publish.PLACEHOLDER)
+        raise AssertionError(f"unexpected https request {url} login={login!r}")
+
+
+PUBLIC_FILES = {"/opt/downloads/ffb-coop-site/games.json": b'{"public": true}\n',
+                "/opt/downloads/ffb-coop-site/games.json.sig": b"public sig\n",
+                "/opt/downloads/ffb-coop-site/launcher/FFB Co-op.exe": b"public exe"}
+
+
+class Dev(unittest.TestCase):
+    """`publish.py --dev` against DevServer: what goes where, and what it refuses."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.exe = os.path.join(self.tmp.name, "FFB Co-op - dev.exe")
+        self.data = fake_exe((1, 0, 1, 0))
+        with open(self.exe, "wb") as f:
+            f.write(self.data)
+        self.pkg = os.path.join(self.tmp.name, "pkg")
+        os.makedirs(self.pkg)
+        self.pkg_files = {"mewcoop_loader.exe": b"loader", "mewcoop.dll": b"dev dll", "mewcoop_ui.swf": b"swf"}
+        for name, data in self.pkg_files.items():
+            with open(os.path.join(self.pkg, name), "wb") as f:
+                f.write(data)
+        self.out = os.path.join(self.tmp.name, "dev-out")
+        self.server = DevServer()
+        self.server.files.update(PUBLIC_FILES)
+        self.patches = [mock.patch.object(publish, "run_gates"),
+                        mock.patch.object(publish, "run", side_effect=self.server.run),
+                        mock.patch.object(publish, "fetch", side_effect=AssertionError("dev publish used the public fetch")),
+                        mock.patch.object(publish, "http_status", side_effect=self.server.http_status),
+                        mock.patch.dict(os.environ, {}, clear=False)]
+        for p in self.patches: p.start()
+        os.environ.pop(publish.DEV_PASSWORD_ENV, None)
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.tmp.cleanup()
+
+    def main(self, *extra, exe=True, package=True):
+        argv = ["--dev", "--out", self.out]
+        if exe:
+            argv += ["--exe", self.exe]
+        if package:
+            argv += ["--package", "mewgenics", self.pkg, "--package-version", "77.0.1", "--optional", "mewcoop_ui.swf"]
+        return publish.main(argv + list(extra))
+
+    def live_dev(self, version):
+        launcher = {"version": version, "url": DEV_LAUNCHER_URL, "sha256": "0" * 64, "size": 1}
+        doc = publish.build_games_json(load(publish.DEV_GAMES_IN), launcher=launcher)
+        self.server.files[DEV_REMOTE + "/games.json"] = publish.dumps(doc).encode()
+        return doc
+
+    def test_constants_are_the_spec_urls(self):
+        self.assertEqual(publish.DEV_REMOTE, DEV_REMOTE)
+        self.assertEqual(publish.DEV_GAMES_URL, DEV_GAMES_URL)
+        self.assertEqual(publish.DEV_LAUNCHER_URL, DEV_LAUNCHER_URL)
+        self.assertEqual(publish.dev_manifest_url("mewgenics"), DEV_MANIFEST_URL)
+
+    def test_checked_in_dev_games_in_is_valid_and_reads_the_dev_manifest(self):
+        launcher = {"version": "1.0.1", "url": DEV_LAUNCHER_URL, "sha256": "0" * 64, "size": 1}
+        doc = publish.build_games_json(load(publish.DEV_GAMES_IN), launcher=launcher)
+        self.assertEqual([g["manifest"] for g in doc["games"]], [DEV_MANIFEST_URL])
+
+    def test_full_publish_writes_only_under_dev(self):
+        self.assertEqual(self.main(), 0)
+        s = self.server
+        for path in s.files:
+            if path not in PUBLIC_FILES:
+                self.assertTrue(path.startswith(DEV_REMOTE + "/"), path)
+        for p, data in PUBLIC_FILES.items():
+            self.assertEqual(s.files[p], data)   # no public file changed
+        for c in s.cmds:
+            if c[0] == "scp":
+                self.assertTrue(c[-1].split(":", 1)[1].startswith(DEV_REMOTE + "/.upload-"), c)
+            elif c[-1].startswith("mv -f "):
+                src, dst = c[-1][len("mv -f "):].split(" ", 1)
+                self.assertTrue(src.startswith(DEV_REMOTE + "/.upload-"), c)
+                self.assertTrue(dst.startswith("'" + DEV_REMOTE + "/"), c)
+            elif c[-1].startswith("mkdir -p "):
+                for d in c[-1][len("mkdir -p "):].split("' '"):
+                    self.assertTrue(d.strip("'").startswith(DEV_REMOTE + "/"), c)
+        self.assertEqual([p for p in s.files if ".upload-" in p], [])
+
+    def test_full_publish_files_signatures_and_order(self):
+        self.assertEqual(self.main(), 0)
+        f = self.server.files
+        self.assertEqual(f[DEV_REMOTE + "/launcher/FFB Co-op - dev.exe"], self.data)
+        games = json.loads(f[DEV_REMOTE + "/games.json"])
+        self.assertEqual(games["launcher"], {"version": "1.0.1", "url": DEV_LAUNCHER_URL,
+                                             "sha256": hashlib.sha256(self.data).hexdigest(), "size": len(self.data)})
+        self.assertTrue(signing.verify_bytes(f[DEV_REMOTE + "/games.json"], f[DEV_REMOTE + "/games.json.sig"], [TEST_PUB]))
+        manifest = json.loads(f[DEV_REMOTE + "/mewgenics/manifest.json"])
+        self.assertTrue(signing.verify_bytes(f[DEV_REMOTE + "/mewgenics/manifest.json"],
+                                             f[DEV_REMOTE + "/mewgenics/manifest.json.sig"], [TEST_PUB]))
+        self.assertEqual(manifest["version"], "77.0.1")
+        self.assertEqual({e["name"]: (e["size"], e["sha256"], e["required"]) for e in manifest["files"]},
+                         {n: (len(d), hashlib.sha256(d).hexdigest(), n != "mewcoop_ui.swf")
+                          for n, d in self.pkg_files.items()})
+        for name, data in self.pkg_files.items():
+            self.assertEqual(f[DEV_REMOTE + "/mewgenics/" + name], data)
+        s = self.server
+        mv = lambda tail: s.index(lambda c: c[-1].startswith("mv -f ") and c[-1].endswith(tail + "'"))
+        self.assertLess(mv("/launcher/FFB Co-op - dev.exe"), mv("/dev/games.json"))
+        self.assertLess(mv("/mewgenics/mewcoop.dll"), mv("/mewgenics/manifest.json"))
+        self.assertLess(mv("/mewgenics/manifest.json.sig"), mv("/mewgenics/manifest.json"))
+        self.assertLess(mv("/mewgenics/manifest.json"), mv("/dev/games.json"))
+        self.assertLess(mv("/dev/games.json.sig"), mv("/dev/games.json"))
+        # the gate was checked before the first upload, and every published URL after
+        first_scp = s.index(lambda c: c[0] == "scp")
+        self.assertTrue(first_scp > 0 and s.https[0] == DEV_GAMES_URL)
+        self.assertIn(DEV_MANIFEST_URL, s.https)
+        self.assertIn(DEV_LAUNCHER_URL, s.https)
+
+    def test_gate_not_up_refused_before_any_upload(self):
+        self.server.gate = False
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp" or c[-1].startswith(("mv ", "mkdir "))])
+
+    def test_release_exe_refused(self):
+        with open(self.exe, "wb") as f:
+            f.write(fake_exe((1, 0, 0, 0)))
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+
+    def test_dev_exe_refused_by_the_public_publish(self):
+        out = os.path.join(self.tmp.name, "games.json")
+        self.assertEqual(publish.main(["--exe", self.exe, "--out", out, "--dry-run"]), 1)
+
+    def test_release_flag_with_dev_refused(self):
+        self.assertEqual(self.main("--release", "1"), 1)
+        self.assertEqual(self.server.cmds, [])
+
+    def test_lower_or_same_version_different_bytes_than_live_dev_refused(self):
+        self.live_dev("1.0.2")
+        self.assertEqual(self.main(), 1)
+        self.live_dev("1.0.1")   # same version, other bytes
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+
+    def test_ssh_down_is_not_an_empty_server(self):
+        # A live 1.0.1 with other bytes would refuse this exe; an ssh that cannot connect must not hide it.
+        self.live_dev("1.0.1")
+        self.server.ssh_down = True
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+        with self.assertRaises(publish.Refused):
+            publish.remote_exists(DEV_REMOTE + "/mewgenics/manifest.json")
+
+    def test_missing_file_is_none_and_present_file_is_read(self):
+        self.assertIsNone(publish.fetch_live_dev_games())
+        self.assertFalse(publish.remote_exists(DEV_REMOTE + "/mewgenics/manifest.json"))
+        live = self.live_dev("1.0.3")
+        self.assertEqual(publish.fetch_live_dev_games(), live)
+
+    def test_newer_than_live_dev_accepted(self):
+        self.live_dev("1.0.0")
+        self.assertEqual(self.main(), 0)
+
+    def test_dev_manifest_not_live_and_not_published_refused(self):
+        self.assertEqual(self.main(package=False), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+        self.server.files[DEV_REMOTE + "/mewgenics/manifest.json"] = b"{}"   # published earlier
+        self.assertEqual(self.main(package=False), 0)
+
+    def test_no_exe_keeps_the_live_launcher(self):
+        live = self.live_dev("1.0.3")
+        self.assertEqual(self.main("--no-exe", exe=False), 0)
+        f = self.server.files
+        self.assertNotIn(DEV_REMOTE + "/launcher/FFB Co-op - dev.exe", f)
+        self.assertEqual(json.loads(f[DEV_REMOTE + "/games.json"])["launcher"], live["launcher"])
+
+    def test_no_exe_without_live_refused(self):
+        self.assertEqual(self.main("--no-exe", exe=False), 1)
+
+    def test_package_for_a_public_manifest_refused(self):
+        games_in = os.path.join(self.tmp.name, "dev-games.json.in")
+        with open(games_in, "w") as f:
+            json.dump(GAMES_IN, f)   # mewgenics reads the public manifest
+        self.assertEqual(self.main("--games-in", games_in), 1)
+
+    def test_package_without_its_launcher_refused(self):
+        os.remove(os.path.join(self.pkg, "mewcoop_loader.exe"))
+        self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+
+    def test_package_with_its_launcher_optional_refused(self):
+        self.assertEqual(self.main("--optional", "mewcoop_loader.exe"), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+
+    def test_bad_package_folders_refused(self):
+        with self.assertRaises(publish.Refused):
+            publish.build_package_manifest(os.path.join(self.tmp.name, "nope"), "77.0.1")
+        empty = os.path.join(self.tmp.name, "empty")
+        os.makedirs(empty)
+        with self.assertRaises(publish.Refused):
+            publish.build_package_manifest(empty, "77.0.1")
+        with self.assertRaises(publish.Refused):
+            publish.build_package_manifest(self.pkg, "seventy")
+        with self.assertRaises(publish.Refused):
+            publish.build_package_manifest(self.pkg, "77.0.1", optional=("absent.dll",))
+        for bad in ("CON.dll", "manifest.json", "x.sig"):
+            d = os.path.join(self.tmp.name, "bad-" + bad)
+            os.makedirs(d)
+            with open(os.path.join(d, bad), "wb") as f:
+                f.write(b"x")
+            with self.subTest(name=bad), self.assertRaises(publish.Refused):
+                publish.build_package_manifest(d, "77.0.1")
+
+    def test_dev_put_never_leaves_the_dev_folder(self):
+        for name in ("../games.json", "/games.json", "..", "a/b/c", "launcher/../../games.json", "",
+                     "launcher/", "x/CON"):
+            with self.subTest(name=name), self.assertRaises(publish.Refused):
+                publish.dev_put(self.exe, name, "0" * 64)
+        self.assertEqual(self.server.cmds, [])
+
+    def test_public_games_json_pointing_at_dev_refused(self):
+        doc = publish.build_games_json(copy.deepcopy(GAMES_IN), fake_exe((1, 0, 0, 0)))
+        publish.check_no_dev_urls(doc)   # the real list passes
+        doc["games"][0]["manifest"] = DEV_MANIFEST_URL
+        with self.assertRaises(publish.Refused):
+            publish.check_no_dev_urls(doc)
+
+    def test_dev_flags_without_dev_refused(self):
+        for extra in (["--no-exe"], ["--package", "mewgenics", self.pkg], ["--package-version", "1"],
+                      ["--optional", "x"]):
+            with self.subTest(extra=extra):
+                self.assertEqual(publish.main(["--exe", self.exe, "--dry-run"] + extra), 1)
+
+    def test_dry_run_writes_and_uploads_nothing(self):
+        self.server.run = mock.Mock(side_effect=AssertionError("dry run touched the server"))
+        publish.run.side_effect = self.server.run
+        with mock.patch.object(publish, "fetch_live_dev_games", return_value=None):
+            self.assertEqual(self.main("--dry-run"), 0)
+        self.assertTrue(os.path.exists(os.path.join(self.out, "games.json")))
+        self.assertTrue(os.path.exists(os.path.join(self.out, "mewgenics", "manifest.json.sig")))
+
+
+class HttpStatusRedirect(unittest.TestCase):
+    """http_status with a login never follows a redirect, so the password never reaches the place it points (#26
+    review round 2, Minor 1). Two real local HTTP servers: `first` answers 302 to `second`, which records every
+    request it gets."""
+
+    def setUp(self):
+        import http.server, threading
+        seen = self.seen = []
+
+        class Second(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"second")
+
+            def log_message(self, *args):
+                pass
+
+        self.second = http.server.HTTPServer(("127.0.0.1", 0), Second)
+        target = f"http://127.0.0.1:{self.second.server_port}/games.json"
+
+        class First(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        self.first = http.server.HTTPServer(("127.0.0.1", 0), First)
+        self.url = f"http://127.0.0.1:{self.first.server_port}/dev/games.json"
+        for srv in (self.first, self.second):
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        for srv in (self.first, self.second):
+            srv.shutdown()
+            srv.server_close()
+
+    def test_login_never_follows_a_redirect(self):
+        code, body = publish.http_status(self.url, login="dev:x")
+        self.assertEqual(code, 302)
+        self.assertEqual(body, b"")
+        self.assertEqual(self.seen, [])   # the second host never saw a request, let alone the header
+
+    def test_no_login_still_follows(self):
+        code, body = publish.http_status(self.url)
+        self.assertEqual((code, body), (200, b"second"))
+        self.assertEqual(self.seen, [None])
+
+    def test_read_back_refuses_a_redirect(self):
+        with mock.patch.dict(os.environ, {publish.DEV_PASSWORD_ENV: "x"}), \
+                mock.patch.object(publish, "DEV_GAMES_URL", self.url), \
+                mock.patch.object(publish, "http_status", side_effect=lambda url, login=None, timeout=20:
+                                  (401, b"") if login is None else self.real(url, login=login)):
+            with self.assertRaises(publish.Refused):
+                publish.verify_dev_live([], "{}")
+        self.assertEqual(self.seen, [])
+
+    real = staticmethod(publish.http_status)
+
+
 if __name__ == "__main__":
     unittest.main()

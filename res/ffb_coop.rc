@@ -1,4 +1,6 @@
 // Version resource and icon for FFB Co-op.exe (Explorer: Properties -> Details).
+// The dev exe (#26) builds this same file with FFB_DEV_CHANNEL defined, so its
+// names and version come from the dev side of ffb_version.h.
 #include <winver.h>
 #include "ffb_version.h"
 
@@ -28,7 +30,7 @@ BEGIN
             VALUE "FileDescription",  FFB_PRODUCT_NAME
             VALUE "FileVersion",      FFB_VERSION_STR
             VALUE "InternalName",     "ffb_coop"
-            VALUE "OriginalFilename", "FFB Co-op.exe"
+            VALUE "OriginalFilename", FFB_EXE_NAME
             VALUE "ProductName",      FFB_PRODUCT_NAME
             VALUE "ProductVersion",   FFB_VERSION_STR
         END
