@@ -6,8 +6,8 @@
 #   cmake --build build --config Release
 #   ctest --test-dir build -C Release
 #
-# -> "build\Release\FFB Co-op.exe" and "build\Release\FFB Co-op - dev.exe" (#26)
-# with a Visual Studio (multi-config) generator.
+# -> "build\Release\FFB Co-op.exe" with a Visual Studio (multi-config) generator.
+# With -DFFB_BUILD_DEV=ON at configure, also "build\Release\FFB Co-op - dev.exe" (#26).
 cmake_minimum_required(VERSION 3.21)
 project(ffb_coop LANGUAGES C CXX RC)
 
@@ -23,10 +23,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 option(FFB_BUILD_TESTS "build the unit tests in tests/" ON)
-# FFB Co-op - dev.exe (#26) needs the dev channel's shared password at build time
-# (cmake/dev_password.cmake says where it is read from); without it the build
-# fails. OFF builds FFB Co-op.exe alone.
-option(FFB_BUILD_DEV "build FFB Co-op - dev.exe too" ON)
+# FFB Co-op - dev.exe (#26), opt-in (Martin, 2026-10-02 21:51): it needs the dev
+# channel's shared password at build time (cmake/dev_password.cmake says where it
+# is read from), and with ON and no password the build fails. The plain build and
+# the release exe never touch the secret.
+option(FFB_BUILD_DEV "build FFB Co-op - dev.exe too (needs the dev password)" OFF)
 
 # FFB Co-op.exe and FFB Co-op - dev.exe (#26) are one source built twice: the dev
 # exe is the same code with FFB_DEV_CHANNEL defined, which picks the dev channel

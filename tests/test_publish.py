@@ -850,5 +850,69 @@ class Dev(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.out, "mewgenics", "manifest.json.sig")))
 
 
+class HttpStatusRedirect(unittest.TestCase):
+    """http_status with a login never follows a redirect, so the password never reaches the place it points (#26
+    review round 2, Minor 1). Two real local HTTP servers: `first` answers 302 to `second`, which records every
+    request it gets."""
+
+    def setUp(self):
+        import http.server, threading
+        seen = self.seen = []
+
+        class Second(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"second")
+
+            def log_message(self, *args):
+                pass
+
+        self.second = http.server.HTTPServer(("127.0.0.1", 0), Second)
+        target = f"http://127.0.0.1:{self.second.server_port}/games.json"
+
+        class First(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        self.first = http.server.HTTPServer(("127.0.0.1", 0), First)
+        self.url = f"http://127.0.0.1:{self.first.server_port}/dev/games.json"
+        for srv in (self.first, self.second):
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        for srv in (self.first, self.second):
+            srv.shutdown()
+            srv.server_close()
+
+    def test_login_never_follows_a_redirect(self):
+        code, body = publish.http_status(self.url, login="dev:x")
+        self.assertEqual(code, 302)
+        self.assertEqual(body, b"")
+        self.assertEqual(self.seen, [])   # the second host never saw a request, let alone the header
+
+    def test_no_login_still_follows(self):
+        code, body = publish.http_status(self.url)
+        self.assertEqual((code, body), (200, b"second"))
+        self.assertEqual(self.seen, [None])
+
+    def test_read_back_refuses_a_redirect(self):
+        with mock.patch.dict(os.environ, {publish.DEV_PASSWORD_ENV: "x"}), \
+                mock.patch.object(publish, "DEV_GAMES_URL", self.url), \
+                mock.patch.object(publish, "http_status", side_effect=lambda url, login=None, timeout=20:
+                                  (401, b"") if login is None else self.real(url, login=login)):
+            with self.assertRaises(publish.Refused):
+                publish.verify_dev_live([], "{}")
+        self.assertEqual(self.seen, [])
+
+    real = staticmethod(publish.http_status)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,11 +19,12 @@ Run `tools/doc_rules.sh` and `tools/scan_rules.sh` before you push; both must ex
 Windows only (MSVC via CMake, same toolchain as mewgenics-coop); WSL cannot build it.
 
 - Configure: `cmake -B build -A x64`
-- Build: `cmake --build build --config Release` → `build\Release\FFB Co-op.exe` and `FFB Co-op - dev.exe`
-- The dev exe needs the shared dev password at build time, never committed: `FFB_DEV_PASSWORD`, or
+- Build: `cmake --build build --config Release` → `build\Release\FFB Co-op.exe`
+- The dev exe is opt-in: configure with `cmake -B build -A x64 -DFFB_BUILD_DEV=ON` to build `FFB Co-op - dev.exe`
+  too. It needs the shared dev password at build time, never committed: `FFB_DEV_PASSWORD`, or
   `FFB_DEV_PASSWORD_FILE` naming a file, or `~/.config/coopmods/ffb-dev-password` (the lead's copy, WSL side; from
   WSL pass it with `FFB_DEV_PASSWORD_FILE=$HOME/.config/coopmods/ffb-dev-password WSLENV=FFB_DEV_PASSWORD_FILE/p`).
-  Without one the build fails; `cmake -B build -A x64 -DFFB_BUILD_DEV=OFF` builds the public exe alone.
+  With ON and no password the build fails. The plain build never needs it.
 - Unit tests: `ctest --test-dir build -C Release --output-on-failure`
 - List registered tests: `ctest --test-dir build -C Release -N`
 

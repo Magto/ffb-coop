@@ -285,7 +285,10 @@ same folder and the dev files just ends up in ~/ffb coop dev/ ?"
 ### One source, two exes
 
 `FFB Co-op - dev.exe` is the same source as `FFB Co-op.exe`, built with one switch (`FFB_DEV_CHANNEL`, the
-`ffb_coop_dev` target): `cmake --build build --config Release` makes both. The switch changes only the values in
+`ffb_coop_dev` target). It is opt-in (Martin, 2026-10-02 21:51, "Opt-in (Recommended) — FFB_BUILD_DEV defaults OFF; only a
+dev build (-DFFB_BUILD_DEV=ON) needs the password. Plain build and release exe never touch the secret."): configured
+with `-DFFB_BUILD_DEV=ON`, `cmake --build build --config Release` makes both; a plain build makes `FFB Co-op.exe`
+alone. The switch changes only the values in
 this table (`src/channel.cpp`) and the names and version in `src/ffb_version.h`; the flow, the signature check, the
 self-update and the package update are the same code.
 
@@ -334,7 +337,8 @@ checked by the server for /dev/." This replaced the per-person login first propo
 - **Built in at build time only.** The password is never in the repo, an issue, a PR or a log. The dev exe's build
   reads it from outside the repo (`FFB_DEV_PASSWORD`, the file named by `FFB_DEV_PASSWORD_FILE`, or
   `~/.config/coopmods/ffb-dev-password`, where the lead keeps it) into a header in the build tree; with none, the
-  build fails rather than make a dev exe with no credential. The public exe has no password at all.
+  build fails rather than make a dev exe with no credential. Only a dev build (`-DFFB_BUILD_DEV=ON`) reads it; the
+  plain build and the public exe have no password at all.
 - **Every fetch** of a URL that starts with `https://coopmods.com/dev/` carries `Authorization: Basic …`, and only
   those: never the public URLs, never another host, never plain http, and never through a redirect.
 - **A refused password** (games.json answers HTTP 401): the installed dev package starts with `coopmods.com refused

@@ -113,9 +113,11 @@ name to type. What the dev exe does with it is `docs/SPEC.md`, "Dev channel".
 **Where the password lives.** Only outside every repo: on the lead machine in `~/.config/coopmods/ffb-dev-password`
 (WSL side, one line, mode 600). It never goes in a repo, issue, PR or log. The dev exe's build reads it
 (`cmake/dev_password.cmake`) from, in order: the environment variable `FFB_DEV_PASSWORD`, the file named by
-`FFB_DEV_PASSWORD_FILE`, then `~/.config/coopmods/ffb-dev-password` under `HOME` or `%USERPROFILE%`. With none of
-them the build fails ("FFB Co-op - dev.exe needs the dev channel's shared password"); `-DFFB_BUILD_DEV=OFF` at
-configure builds `FFB Co-op.exe` alone. From WSL on Tubal-Cain the Windows build gets the file with
+`FFB_DEV_PASSWORD_FILE`, then `~/.config/coopmods/ffb-dev-password` under `HOME` or `%USERPROFILE%`. The dev exe is
+opt-in (Martin, 2026-10-02 21:51): only a build configured with `-DFFB_BUILD_DEV=ON` makes it and reads the password,
+and with none of them that build fails ("FFB Co-op - dev.exe needs the dev channel's shared password"). The plain
+build, and the release exe, never touch it. From WSL on Tubal-Cain the Windows build gets the file with
+`cmake.exe -B build -A x64 -DFFB_BUILD_DEV=ON`, then
 `FFB_DEV_PASSWORD_FILE=$HOME/.config/coopmods/ffb-dev-password WSLENV=FFB_DEV_PASSWORD_FILE/p cmake.exe --build …`.
 Changing the password means a new hash on the server, then a new dev exe built and published with the new one. A dev
 exe already out there carries the old password, so it cannot fetch that update: it starts what is installed with a
@@ -133,8 +135,10 @@ The lead's deploy session, by the Caddyfile steps under "Editing the Caddyfile" 
 the inode, validate, reload):
 
 1. **Hash the shared password**, at deploy time, from the lead's file, without it ever being on a command line:
-   `ssh root@89.167.37.21 docker exec -i caddy caddy hash-password < ~/.config/coopmods/ffb-dev-password`.
-   The bcrypt hash it prints goes in the block below and nowhere else; the password itself never goes to the server.
+   `{ cat ~/.config/coopmods/ffb-dev-password; echo; } | ssh root@89.167.37.21 docker exec -i caddy caddy hash-password`.
+   The `echo` adds the line ending `caddy hash-password` needs on a pipe (the file has none; without it Caddy stops at
+   `EOF` and prints no hash). The bcrypt hash it prints goes in the block below and nowhere else; the password itself
+   is never stored on the server.
 2. **Add the `/dev/*` handle** to the `coopmods.com` block, before the final `handle`:
 
 ```
@@ -186,8 +190,8 @@ python tools/publish.py --dev --package mewgenics <folder> --package-version 77.
 python tools/publish.py --dev --no-exe --package mewgenics <folder> --package-version 77.0.2 --optional mewcoop_ui.swf
 ```
 
-- **The exe** is `build/Release/FFB Co-op - dev.exe` (built beside `FFB Co-op.exe` by the same `cmake --build`,
-  with the shared password available as above).
+- **The exe** is `build/Release/FFB Co-op - dev.exe`, built beside `FFB Co-op.exe` by a build configured with
+  `-DFFB_BUILD_DEV=ON` and the shared password available as above (a plain build does not make it).
   Its version must be a dev version `N.0.D` (D at least 1): bump `FFB_DEV_BUILD` and `FFB_DEV_VERSION_STR` in
   `src/ffb_version.h` before each dev publish, or the live comparison refuses it ("bump the version"), exactly as
   for the public exe. `--release` is refused with `--dev`, and the public publish refuses a dev exe.

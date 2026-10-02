@@ -101,7 +101,7 @@ add_test(NAME test_version_dev COMMAND test_version_dev)
 
 # #26: the dev exe itself, the same three checks as FFB Co-op.exe's above. It
 # prints its own name and dev version, and offline it says the dev package is
-# not installed (FFB_COOP_OFFLINE=1). Only when it is built (FFB_BUILD_DEV).
+# not installed (FFB_COOP_OFFLINE=1). Only when it is built (-DFFB_BUILD_DEV=ON).
 if(TARGET ffb_coop_dev)
     add_test(NAME ffb_coop_dev_exits_0 COMMAND ffb_coop_dev --version)
     add_test(NAME ffb_coop_dev_version_line COMMAND ffb_coop_dev --version)

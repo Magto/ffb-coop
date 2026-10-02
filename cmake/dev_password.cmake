@@ -54,7 +54,7 @@ if(_pw STREQUAL "")
         message(FATAL_ERROR
             "FFB Co-op - dev.exe needs the dev channel's shared password, and none was found.\n"
             "Set FFB_DEV_PASSWORD, or FFB_DEV_PASSWORD_FILE to a file holding it, or put it in "
-            "~/.config/coopmods/ffb-dev-password. To build only FFB Co-op.exe, configure with -DFFB_BUILD_DEV=OFF.")
+            "~/.config/coopmods/ffb-dev-password. To build only FFB Co-op.exe, configure with -DFFB_BUILD_DEV=OFF (the default).")
     else()
         message(FATAL_ERROR "FFB Co-op - dev.exe: the dev password from ${_from} is empty")
     endif()

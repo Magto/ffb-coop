@@ -439,16 +439,27 @@ def signing_key(dry_run):
         raise Refused(str(e))
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: urllib would send the Authorization header on to wherever it points. The 3xx comes
+    back as the answer instead."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def http_status(url, login=None, timeout=20):
     """-> (HTTP status, body) for a GET of `url`, with HTTP Basic `login` ("user:password") when given; raises on
-    a transport failure."""
+    a transport failure. With a login a redirect is never followed (as the dev exe, docs/SPEC.md "The dev
+    password"): the 3xx is the status, so a read-back that wants 200 fails."""
     headers = {"User-Agent": "ffb-coop-publish"}
+    opener = urllib.request.build_opener()
     if login:
         headers["Authorization"] = "Basic " + base64.b64encode(login.encode("utf-8")).decode("ascii")
+        opener = urllib.request.build_opener(_NoRedirect)
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
+        with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
             return r.status, r.read()
     except urllib.error.HTTPError as e:
+        e.close()
         return e.code, b""
 
 
@@ -567,7 +578,8 @@ def publish_dev(a):
         launcher = live["launcher"]
     else:
         if not os.path.exists(a.exe):
-            raise Refused(f"missing: {a.exe} (build it first: cmake --build build --config Release)")
+            raise Refused(f"missing: {a.exe} (build it first, with the dev password available: "
+                          f"cmake -B build -A x64 -DFFB_BUILD_DEV=ON, then cmake --build build --config Release)")
         with open(a.exe, "rb") as f:
             exe = f.read()
         launcher = launcher_block(exe, DEV_LAUNCHER_URL)
