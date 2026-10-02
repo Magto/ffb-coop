@@ -47,8 +47,12 @@ The same exe serves every game. There is no Steam lookup and no game menu: the f
    package folder; nothing is written anywhere else.
 5. **Start the package launcher** — `FFB Co-op\<launcher>` — with the game exe's full path as its
    first argument, followed by every argument `FFB Co-op.exe` itself was given, unchanged and in
-   order. Its working directory is the package folder **(spec default)**. Then FFB Co-op.exe exits
-   without waiting for it.
+   order. Its working directory is the package folder **(spec default)**. When the game's
+   `steam_appid` is above 0, the package launcher is started with `SteamAppId` and `SteamGameId` set
+   to it in its environment, and the game it starts inherits them; otherwise it gets FFB Co-op.exe's
+   environment unchanged (#28). A genuine Steam copy started outside Steam restarts itself through
+   Steam, and the restarted game has no mod; with `SteamAppId` set it does not restart
+   (mewgenics-coop#627). Then FFB Co-op.exe exits without waiting for it.
 
 If step 1 fails — no answer, or a games.json that is unsigned, badly signed or invalid — the launcher
 follows [Offline](#offline) instead of steps 2–4.
@@ -77,7 +81,7 @@ Served at `https://coopmods.com/games.json`, UTF-8 JSON, without the site cookie
       "id": "mewgenics",
       "name": "Mewgenics",
       "exe": "Mewgenics.exe",
-      "steam_appid": 0,
+      "steam_appid": 686060,
       "manifest": "https://mewgenics.coopmods.com/update/manifest.json",
       "launcher": "mewcoop_loader.exe"
     }
@@ -107,7 +111,7 @@ server, with its own message ([Offline](#offline)) **(spec default)**.
 | `games[].id` | string | Required. 1–32 characters from `a-z`, `0-9` and `-`. Unique across `games`. |
 | `games[].name` | string | Required. Not empty. Shown to the player; never used as a path. |
 | `games[].exe` | string | Required. A [plain file name](#network-file-name-rule) ending in `.exe` (any case). Unique across `games`, compared without regard to case. |
-| `games[].steam_appid` | integer | Required. At least 0; `0` means not known yet. Data only: the launcher reads it and does nothing with it. |
+| `games[].steam_appid` | integer | Required. At least 0; `0` means not known yet. Above 0, the package launcher is started with `SteamAppId` and `SteamGameId` set to it ([The flow](#the-flow), step 5); `0` leaves its environment as it is. |
 | `games[].manifest` | string | Required. An absolute `https://` URL. |
 | `games[].launcher` | string | Required. A [plain file name](#network-file-name-rule) ending in `.exe`. Must also be the `name` of one of that manifest's files, marked required — checked once the manifest is fetched. |
 

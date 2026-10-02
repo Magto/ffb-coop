@@ -84,6 +84,13 @@ target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_
 target_compile_definitions(test_cmdline PRIVATE NOMINMAX)
 add_test(NAME test_cmdline COMMAND test_cmdline)
 
+# #28: the package launcher's environment -- SteamAppId and SteamGameId when
+# games.json knows the Steam app id, the parent's environment otherwise.
+add_executable(test_child_env test_child_env.cpp ${CMAKE_SOURCE_DIR}/src/child_env.cpp)
+target_include_directories(test_child_env PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_child_env PRIVATE /W3)
+add_test(NAME test_child_env COMMAND test_child_env)
+
 # tools/publish.py, the SHIP_CMD (#7): its Python unit tests, so TEST_CMD runs them beside the C++
 # ones. CI runs the same suite in .github/workflows/doc-rules.yml.
 find_package(Python3 COMPONENTS Interpreter)
