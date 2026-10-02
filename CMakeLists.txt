@@ -43,6 +43,8 @@ function(ffb_coop_exe target output_name)
     # finder (#3), the package update and its network (#4), the channel (#26).
     target_sources(${target} PRIVATE src/app.cpp src/app_win.cpp src/games.cpp src/finder.cpp
         src/plain_name.cpp src/package.cpp src/net.cpp src/channel.cpp)
+    # The package launcher's environment: SteamAppId for a genuine Steam copy (#28).
+    target_sources(${target} PRIVATE src/child_env.cpp)
     # The ed25519 signature check on games.json and the manifest (#21); the
     # arithmetic is TweetNaCl, public domain (THIRD-PARTY-NOTICES.md).
     target_sources(${target} PRIVATE src/signature.cpp third_party/tweetnacl.c)

@@ -13,6 +13,7 @@
 #include "selfupdate.h"
 #include "signature.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -48,9 +49,12 @@ public:
 
     // Starts `exe` with the whole command line `cmdline` (argv[0] included) and
     // `workdir` as its working directory, without waiting for it. All UTF-8.
+    // A `steam_appid` above 0 is set as SteamAppId and SteamGameId in its
+    // environment (child_env.h, #28); 0 leaves the environment as it is.
     // -> false with `why` set when it would not start.
     virtual bool start_process(const std::string& exe, const std::string& cmdline,
-                               const std::string& workdir, std::string* why) = 0;
+                               const std::string& workdir, std::uint64_t steam_appid,
+                               std::string* why) = 0;
 
     // Blocks until the player presses a key. Called after every error screen,
     // once "Press any key to exit." is on the screen.

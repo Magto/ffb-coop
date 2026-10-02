@@ -85,6 +85,13 @@ target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_
 target_compile_definitions(test_cmdline PRIVATE NOMINMAX)
 add_test(NAME test_cmdline COMMAND test_cmdline)
 
+# #28: the package launcher's environment -- SteamAppId and SteamGameId when
+# games.json knows the Steam app id, the parent's environment otherwise.
+add_executable(test_child_env test_child_env.cpp ${CMAKE_SOURCE_DIR}/src/child_env.cpp)
+target_include_directories(test_child_env PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_child_env PRIVATE /W3)
+add_test(NAME test_child_env COMMAND test_child_env)
+
 # #26: the dev channel -- the channel table, the base64 and the rule that sends the
 # dev credential to coopmods.com/dev/ and nowhere else.
 add_executable(test_channel test_channel.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp)

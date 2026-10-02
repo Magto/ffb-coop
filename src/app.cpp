@@ -111,7 +111,7 @@ int start_launcher(const AppInput& in, AppIo& io, const GameEntry& game) {
     const std::string cmdline  = launcher_command_line(launcher, game_exe, in.arg_tail);
     io.out("Starting " + game.name + " with co-op: " + game.launcher);
     std::string why;
-    if (!io.start_process(launcher, cmdline, dir, &why))
+    if (!io.start_process(launcher, cmdline, dir, game.steam_appid, &why))
         return error_screen(io, {"Could not start " + launcher + " (" + why + ")"});
     return 0;
 }

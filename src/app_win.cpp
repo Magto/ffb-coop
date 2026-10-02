@@ -3,6 +3,7 @@
 // and the console for lines and the key press. See app.h. The dev exe (#26)
 // also hands the dev channel's shared password, built in, to both downloaders.
 #include "app.h"
+#include "child_env.h"
 #include "ffb_version.h"
 #ifdef FFB_DEV_CHANNEL
 // In the build tree only, written by cmake/dev_password.cmake; never committed.
@@ -61,18 +62,29 @@ public:
     SelfUpdateIo& self_update_io() override { return windows_self_update_io(); }
 
     bool start_process(const std::string& exe, const std::string& cmdline,
-                       const std::string& workdir, std::string* why) override {
+                       const std::string& workdir, std::uint64_t steam_appid,
+                       std::string* why) override {
         const std::wstring wexe = widen(exe), wdir = widen(workdir);
         std::wstring wcmd = widen(cmdline);
         std::vector<wchar_t> mutable_cmd(wcmd.begin(), wcmd.end());
         mutable_cmd.push_back(0);
 
+        // SteamAppId for a genuine Steam copy (#28); with no id the launcher
+        // inherits this process's environment as before.
+        std::wstring env;
+        if (steam_appid > 0) {
+            wchar_t* own = GetEnvironmentStringsW();
+            env = environment_block(child_environment(environment_strings(own), steam_appid));
+            if (own) FreeEnvironmentStringsW(own);
+        }
+
         // No new console: the package launcher writes into the window the
         // player is already looking at, and keeps it open after this exits.
         STARTUPINFOW        si = {sizeof(si)};
         PROCESS_INFORMATION pi = {};
-        if (!CreateProcessW(wexe.c_str(), mutable_cmd.data(), nullptr, nullptr, FALSE, 0, nullptr,
-                            wdir.c_str(), &si, &pi)) {
+        if (!CreateProcessW(wexe.c_str(), mutable_cmd.data(), nullptr, nullptr, FALSE,
+                            env.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT,
+                            env.empty() ? nullptr : &env[0], wdir.c_str(), &si, &pi)) {
             *why = "error " + std::to_string(GetLastError());
             return false;
         }
