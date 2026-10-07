@@ -18,7 +18,7 @@ Adopted 2026-09-25 (#1), modelled on `Magto/mewgenics-coop`'s config.
 | `DEFAULT_BRANCH` | `main` |
 | `MAC_CLONE` | `none` — no Mac clone (Martin, 2026-09-25, PR #13) |
 | `WIN_CLONE` | `C:\Users\marti\claude-project\ffb-coop` |
-| `SESSION_GROUP` | `ffb-coop` — the agent-manager group does not exist yet (2026-09-25); the lead creates it (directory `/home/marti/claude-project/ffb-coop`, worktree on) before the next spawn |
+| `SESSION_GROUP` | `ffb-coop` — no agent-manager group of that name yet: ffb-coop's sessions run in the `mewgenics-coop` group under the same lead, which runs both projects (Martin 2026-10-07 11:19: "You are the lead for ffb-coop as well, all things conserning the mod will you be the one handeling I belive.") |
 
 ## Board
 
@@ -103,7 +103,8 @@ until it is turned on.
 
 | Key | Value |
 |---|---|
-| `SESSION_CEILING` | `5` live sessions besides the lead, of any kind — **shared with mewgenics-coop**: one ceiling for both projects together, not five each |
+| `SESSION_CEILING` | `10` |
+| `SESSION_SHARE` | `1` |
 | `QDESK_URL` | `https://claude.ai/artifact/8U7kK973TfhRQ3eQSdaQVL` — the shared Question Desk page (agent-workflow v84): questions to Martin are written there as `ffb-coop-Q<n>` docs with `repo` `Magto/ffb-coop`, answers read from it. The same lead runs mewgenics-coop and ffb-coop (Martin 2026-10-07 11:19) |
 | `WORKER_MODEL` | Opus |
 | `REVIEWER_MODEL_SRC` | Fable |
@@ -116,6 +117,8 @@ until it is turned on.
 | `ESCALATION_MODEL` | Fable |
 | `FULL_MCP_TOKEN` | `~/.config/agent-manager/full-mcp-once` |
 | `AM_TMUX_SOCKET` | per lead machine: **WSL on Tubal-Cain** `/tmp/tmux-1000/agentmgr` (`ls /tmp/tmux-$(id -u)/`) · **Mac** not measured yet — a lead on the Mac stops on this key until it is filled. The lead types into a pane only on `OWNER`'s word; panes are `am_<session id>` |
+
+`SESSION_CEILING` is the machine's ceiling, the same `10` as mewgenics-coop's LEAD-CONFIG (Martin 2026-09-30 08:42: "Feel free to set the maximum sessions to 10 now until I say something different"), not a separate five for this project. `SESSION_SHARE` is this project's guaranteed slots on the machine (agent-workflow v43); mewgenics-coop holds `3`. Both cells are read by `burst-ok`, so they hold the bare value only.
 
 ## Modules
 
