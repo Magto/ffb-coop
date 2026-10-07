@@ -104,6 +104,7 @@ until it is turned on.
 | Key | Value |
 |---|---|
 | `SESSION_CEILING` | `5` live sessions besides the lead, of any kind — **shared with mewgenics-coop**: one ceiling for both projects together, not five each |
+| `QDESK_URL` | `https://claude.ai/artifact/8U7kK973TfhRQ3eQSdaQVL` — the shared Question Desk page (agent-workflow v84): questions to Martin are written there as `ffb-coop-Q<n>` docs with `repo` `Magto/ffb-coop`, answers read from it. The same lead runs mewgenics-coop and ffb-coop (Martin 2026-10-07 11:19) |
 | `WORKER_MODEL` | Opus |
 | `REVIEWER_MODEL_SRC` | Fable |
 | `REVIEWER_MODEL_DOCS` | Sonnet |
