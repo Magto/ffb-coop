@@ -9,6 +9,12 @@ on:
   push:
     branches: [main]
 
+# A newer push to the same PR or to main cancels the run it supersedes (Actions minutes ran out,
+# 2026-10-13; each run bills a full minute).
+concurrency:
+  group: doc-rules-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   issues: read
@@ -17,6 +23,7 @@ jobs:
   doc-rules:
     name: doc-rules
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
