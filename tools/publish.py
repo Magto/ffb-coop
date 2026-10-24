@@ -40,12 +40,14 @@ the dev password; it never touches a public file (dev_put refuses any other path
 the same version rules against the live dev games.json (read over ssh: publishing needs no password). The exe must be a
 dev version MAJOR.0.D with D >= 1, which no release exe ever is; --release is refused with --dev. The games list is
 site/dev-games.json.in. --package writes a manifest for every file in DIR (all required except --optional ones),
-signs it and uploads it to ffbcoop.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
+signs it and uploads it to coopmods.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
 Before uploading it checks that ffbcoop.com/dev/games.json answers 401 without a login, so nothing goes up while
 the gate is not deployed; afterwards, that every published URL still does.
 
-Every URL it writes and checks is on ffbcoop.com (#35). coopmods.com is the same server under its old name and keeps
-serving the same files, because 1.0.0 launchers read it; a launcher from #35 on falls back to it on its own.
+Every URL it writes and checks is on ffbcoop.com (#35), except in the dev games.json: its launcher and manifest URLs
+are on coopmods.com/dev/, the only place a dev exe up to 2.0.1 sends the dev password; a dev exe from 2.0.2 on tries
+their ffbcoop.com twins first. coopmods.com is the same server under its old name and keeps serving the same files,
+because 1.0.0 launchers read it; a launcher from #35 on falls back to it on its own.
 """
 import argparse, base64, hashlib, json, os, re, struct, subprocess, sys, tempfile, urllib.error, urllib.request
 
@@ -68,10 +70,14 @@ GATES = ("tools/doc_rules.sh", "tools/scan_rules.sh")   # DOC_RULES_CMD, SCAN_RU
 
 # The dev channel (#26): one folder on the server, one URL prefix behind the shared dev password.
 DEV_REMOTE = REMOTE + "/dev"
-DEV_URL = URL + "/dev"
+# The URLs written into the dev games.json stay on coopmods.com (#35): a dev exe up to 2.0.1 sends the dev password
+# only to https://coopmods.com/dev/, so a launcher or manifest URL on ffbcoop.com answers it 401 and it can never
+# self-update. From 2.0.2 on the exe tries the ffbcoop.com twin of these URLs first, with the password, on its own.
+DEV_URL = OLD_URL + "/dev"
 DEV_EXE_NAME = "FFB Co-op - dev.exe"
 DEV_LAUNCHER_URL = f"{DEV_URL}/launcher/FFB%20Co-op%20-%20dev.exe"
-DEV_GAMES_URL = f"{DEV_URL}/games.json"
+DEV_GAMES_URL = f"{URL}/dev/games.json"            # what a dev exe from 2.0.2 on reads first
+DEV_OLD_GAMES_URL = f"{OLD_URL}/dev/games.json"    # what a dev exe up to 2.0.1 reads
 DEV_SIG_URL = DEV_GAMES_URL + signing.SIG_SUFFIX
 DEV_DEFAULT_EXE = os.path.join(REPO, "build", "Release", DEV_EXE_NAME)
 DEV_GAMES_IN = os.path.join(REPO, "site", "dev-games.json.in")
@@ -263,7 +269,7 @@ def check_against_live(new, live):
 
 def under_dev(url):
     """On the dev channel under either name of the server (#35)."""
-    return isinstance(url, str) and url.startswith((DEV_URL + "/", OLD_URL + "/dev/"))
+    return isinstance(url, str) and url.startswith((URL + "/dev/", OLD_URL + "/dev/"))
 
 
 def check_no_dev_urls(doc):
@@ -519,11 +525,11 @@ def verify_dev_live(urls, games_text):
             raise Refused(f"{url} answered HTTP {code} without a login -- the dev gate is not covering it")
     password = os.environ.get(DEV_PASSWORD_ENV, "").strip()
     if password:
-        code, body = http_status(DEV_GAMES_URL, login=f"{DEV_LOGIN_USER}:{password}")
-        if code != 200 or body != games_text.encode("utf-8"):
-            raise Refused(f"{DEV_GAMES_URL} with {DEV_PASSWORD_ENV} does not answer the published games.json "
-                          f"(HTTP {code})")
-        print(f"verified with the dev password: {DEV_GAMES_URL}")
+        for url in (DEV_GAMES_URL, DEV_OLD_GAMES_URL):
+            code, body = http_status(url, login=f"{DEV_LOGIN_USER}:{password}")
+            if code != 200 or body != games_text.encode("utf-8"):
+                raise Refused(f"{url} with {DEV_PASSWORD_ENV} does not answer the published games.json (HTTP {code})")
+            print(f"verified with the dev password: {url}")
     else:
         print(f"{DEV_PASSWORD_ENV} not set: the dev files were checked by sha256 on the server, not read back over https")
 
@@ -580,7 +586,8 @@ def publish_dev(a):
     if a.no_exe:
         if not isinstance(live, dict) or validate_games_json(live):
             raise Refused("--no-exe keeps the live dev launcher, and there is no valid live dev games.json")
-        launcher = live["launcher"]
+        # The same file on the server, at the URL every dev exe sends the password to (#35).
+        launcher = dict(live["launcher"], url=DEV_LAUNCHER_URL)
     else:
         if not os.path.exists(a.exe):
             raise Refused(f"missing: {a.exe} (build it first, with the dev password available: "
@@ -594,8 +601,9 @@ def publish_dev(a):
         if a.version and a.version != launcher["version"]:
             raise Refused(f"--version {a.version} but the exe says {launcher['version']}")
     doc = build_games_json(games_in, launcher=launcher)
-    if not under_dev(doc["launcher"]["url"]):
-        raise Refused(f"the dev launcher URL {doc['launcher']['url']} is not under {DEV_URL}/")
+    if not doc["launcher"]["url"].startswith(DEV_URL + "/"):
+        raise Refused(f"the dev launcher URL {doc['launcher']['url']} is not under {DEV_URL}/ -- a dev exe up to "
+                      "2.0.1 sends the dev password nowhere else (#35)")
     check_against_live(doc, live)
 
     by_id = {g["id"]: g for g in doc["games"]}
@@ -645,7 +653,7 @@ def publish_dev(a):
     check_dev_gate()
     dirs = " ".join(f"'{DEV_REMOTE}/{d}'" for d in ["launcher"] + [w[0] for w in written])
     run(["ssh", "-o", "ConnectTimeout=15", HOST, f"mkdir -p {dirs}"])
-    urls = [DEV_GAMES_URL, DEV_SIG_URL]
+    urls = [DEV_GAMES_URL, DEV_SIG_URL, DEV_OLD_GAMES_URL]
     if exe is not None:
         dev_put(a.exe, f"launcher/{DEV_EXE_NAME}", doc["launcher"]["sha256"])
         urls.append(DEV_LAUNCHER_URL)

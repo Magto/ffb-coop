@@ -132,8 +132,8 @@ one-line warning, and its owner drops the new dev exe in by hand once.
 | URL | File on the server | Written by |
 |---|---|---|
 | `https://ffbcoop.com/dev/games.json` and `.sig` | `/opt/downloads/ffb-coop-site/dev/games.json` and `.sig` | `tools/publish.py --dev` |
-| `https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` | `/opt/downloads/ffb-coop-site/dev/launcher/FFB Co-op - dev.exe` | `tools/publish.py --dev` |
-| `https://ffbcoop.com/dev/<game id>/manifest.json`, `.sig` and its files | `/opt/downloads/ffb-coop-site/dev/<game id>/…` | `tools/publish.py --dev --package <game id> <folder>` |
+| `https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` (the URL the dev games.json names, #35) | `/opt/downloads/ffb-coop-site/dev/launcher/FFB Co-op - dev.exe` | `tools/publish.py --dev` |
+| `https://coopmods.com/dev/<game id>/manifest.json`, `.sig` and its files | `/opt/downloads/ffb-coop-site/dev/<game id>/…` | `tools/publish.py --dev --package <game id> <folder>` |
 
 ### What a deploy must do (not done yet)
 
