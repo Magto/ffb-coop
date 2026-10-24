@@ -24,16 +24,16 @@ int main() {
 
     std::printf("the public channel is what FFB Co-op.exe always read\n");
     CHECK(same(pub.exe_name, "FFB Co-op.exe"));
-    CHECK(same(pub.games_json_url, "https://coopmods.com/games.json"));
+    CHECK(same(pub.games_json_url, "https://ffbcoop.com/games.json"));
     CHECK(same(pub.package_dir, "FFB Co-op"));
     CHECK(pub.login_prefix == nullptr);
     CHECK(pub.launcher_env == nullptr);
 
     std::printf("the dev channel: its own exe name, games.json, folder and login prefix\n");
     CHECK(same(dev.exe_name, "FFB Co-op - dev.exe"));
-    CHECK(same(dev.games_json_url, "https://coopmods.com/dev/games.json"));
+    CHECK(same(dev.games_json_url, "https://ffbcoop.com/dev/games.json"));
     CHECK(same(dev.package_dir, "FFB Co-op dev"));
-    CHECK(same(dev.login_prefix, "https://coopmods.com/dev/"));
+    CHECK(same(dev.login_prefix, "https://ffbcoop.com/dev/"));
     CHECK(same(dev.launcher_env, "MEWCOOP_NOUPDATE=1"));
 
     std::printf("this test is built without FFB_DEV_CHANNEL: this_channel() is the public one\n");

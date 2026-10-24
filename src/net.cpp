@@ -142,6 +142,31 @@ int get_body(Net& net, const std::string& url, std::string* body) {
     return net.get(url, [body](const char* p, std::size_t n) { body->append(p, n); return true; });
 }
 
+// --- ffbcoop.com first (#35) ------------------------------------------------
+
+int MirrorNet::get(const std::string& url, const Sink& sink) {
+    const std::vector<std::string> urls = mirror_urls(url);
+    int status = 0;
+    for (std::size_t i = 0; i < urls.size(); ++i) {
+        bool got_bytes = false;
+        status = inner_.get(urls[i], [&](const char* p, std::size_t n) {
+            got_bytes = true;
+            return sink(p, n);
+        });
+        if (status == 0 && !got_bytes && i + 1 < urls.size()) {
+            if (log_) log_("[!] " + url_host(urls[i]) + " did not answer -- trying " + url_host(urls[i + 1]));
+            continue;
+        }
+        if (status != 0) {
+            const std::string host = url_host(urls[i]);
+            if (host != last_host_ && log_) log_("[*] reached " + (host.empty() ? urls[i] : host));
+            last_host_ = host;
+        }
+        break;
+    }
+    return status;
+}
+
 #ifdef _WIN32
 
 namespace {

@@ -25,7 +25,8 @@ soon. One download, `FFB Co-op.exe`, works out which game it sits next to and fe
 
 The same exe serves every game. There is no Steam lookup and no game menu: the folder decides.
 
-1. **Fetch `https://coopmods.com/games.json`** — once per start. It carries both the launcher's own
+1. **Fetch `https://ffbcoop.com/games.json`** — once per start (coopmods.com when ffbcoop.com does not
+   answer, [Two names](#two-names), #35). It carries both the launcher's own
    update block and the list of games. Its signature, `games.json.sig`, is fetched beside it and
    checked before a byte of games.json is read ([Signatures](#signatures), #21); a missing or wrong
    signature is handled like an invalid file, so there is no self-update.
@@ -63,7 +64,8 @@ it, `--version` is passed on to the package launcher like the rest (#6).
 
 ## games.json
 
-Served at `https://coopmods.com/games.json`, UTF-8 JSON, without the site cookie.
+Served at `https://ffbcoop.com/games.json`, UTF-8 JSON, without the site cookie (and at
+`https://coopmods.com/games.json`, the same file: [Two names](#two-names)).
 
 ### Example
 
@@ -72,7 +74,7 @@ Served at `https://coopmods.com/games.json`, UTF-8 JSON, without the site cookie
   "schema": 1,
   "launcher": {
     "version": "1.0.0",
-    "url": "https://coopmods.com/launcher/FFB%20Co-op.exe",
+    "url": "https://ffbcoop.com/launcher/FFB%20Co-op.exe",
     "sha256": "9f2c4e1a7b3d5f60812a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d",
     "size": 412160
   },
@@ -82,7 +84,7 @@ Served at `https://coopmods.com/games.json`, UTF-8 JSON, without the site cookie
       "name": "Mewgenics",
       "exe": "Mewgenics.exe",
       "steam_appid": 686060,
-      "manifest": "https://mewgenics.coopmods.com/update/manifest.json",
+      "manifest": "https://mewgenics.ffbcoop.com/update/manifest.json",
       "launcher": "mewcoop_loader.exe"
     }
   ]
@@ -175,7 +177,7 @@ required file of the package (#6).
 ## Signatures
 
 Added by #21. The sha256 values in games.json and in a manifest catch a broken download, not a
-hostile server: whoever controls coopmods.com, its web server or its DNS could publish new bytes and
+hostile server: whoever controls ffbcoop.com or coopmods.com, its web server or its DNS could publish new bytes and
 a matching hash. So both files are signed offline, with a key that is in no repo and not on the
 server, and FFB Co-op.exe checks the signature before it reads the file. games.json carries the
 launcher's own sha256, and the manifest the sha256 of every package file, so the signatures cover the
@@ -184,9 +186,9 @@ exe and the package too.
 ### Format
 
 - **Algorithm:** ed25519 (RFC 8032), raw: no wrapper format, no key id.
-- **Signature file:** `<file>.sig`, served beside the file — `https://coopmods.com/games.json.sig`,
+- **Signature file:** `<file>.sig`, served beside the file — `https://ffbcoop.com/games.json.sig`,
   and for a manifest its URL with `.sig` appended (a query or fragment dropped first):
-  `https://mewgenics.coopmods.com/update/manifest.json.sig`.
+  `https://mewgenics.ffbcoop.com/update/manifest.json.sig`.
 - **Content:** the 64-byte signature over the **exact bytes** of the file as served, written as 128
   hex digits (the publish side writes lowercase and a newline; the launcher accepts either case and
   trailing whitespace, nothing else).
@@ -203,7 +205,7 @@ exe and the package too.
 | `.sig` missing (any HTTP status but 200), not 128 hex digits, signed by another key, or the file changed by even one byte | refused: one warning line, **no self-update**, the installed version starts ([Offline](#offline)) | refused: one warning line, nothing downloaded, **no file in the game folder changes** (not even the kept games.json), the installed version starts |
 | `.sig` gets no answer at all (transport failure) | as unreachable | as unreachable |
 
-The warning reads `coopmods.com sent a file without a valid signature (<reason>) -- starting the
+The warning reads `ffbcoop.com sent a file without a valid signature (<reason>) -- starting the
 installed version.`, where `<reason>` is one of `games.json is not signed: <sig URL> said HTTP <n>`,
 `games.json: the signature is not 128 hex digits`, `games.json: the signature does not match`, or the
 same three with `the manifest` for `games.json`. With nothing installed it is the not-installed
@@ -298,9 +300,9 @@ self-update and the package update are the same code.
 
 | | `FFB Co-op.exe` | `FFB Co-op - dev.exe` |
 |---|---|---|
-| games.json | `https://coopmods.com/games.json` | `https://coopmods.com/dev/games.json` |
-| Its own update | `https://coopmods.com/launcher/FFB%20Co-op.exe` | `https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` |
-| A game's manifest | whatever games.json names (Mewgenics: `https://mewgenics.coopmods.com/update/manifest.json`) | whatever the dev games.json names (Mewgenics: `https://coopmods.com/dev/mewgenics/manifest.json`) |
+| games.json | `https://ffbcoop.com/games.json` | `https://ffbcoop.com/dev/games.json` |
+| Its own update | `https://ffbcoop.com/launcher/FFB%20Co-op.exe` | `https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` |
+| A game's manifest | whatever games.json names (Mewgenics: `https://mewgenics.ffbcoop.com/update/manifest.json`) | whatever the dev games.json names (Mewgenics: `https://ffbcoop.com/dev/mewgenics/manifest.json`) |
 | Package folder | `<game folder>\FFB Co-op\` | `<game folder>\FFB Co-op dev\` |
 | Password | none | the shared dev password, below |
 | Version | `N.0.0` (vN) | `N.0.D`: dev build D, D at least 1 (`FFB_DEV_BUILD`) |
@@ -313,7 +315,7 @@ game folder, beside `FFB Co-op\`, as the issue's first Done bullet puts it. The 
 `FFB Co-op dev\` (the package and the kept games.json and manifest.json) and its own
 `FFB Co-op - dev.exe.new` / `FFB Co-op - dev.old.exe` during a self-update. It never reads or writes `FFB Co-op\`:
 offline with only the public package installed it says it is not installed rather than start the public one. The
-public exe never fetches a URL under `https://coopmods.com/dev/` and never reads `FFB Co-op dev\`;
+public exe never fetches a URL under `https://ffbcoop.com/dev/` (or its coopmods.com twin) and never reads `FFB Co-op dev\`;
 `tools/publish.py` refuses a public games.json that points under `/dev/`.
 
 ### The same rules
@@ -335,7 +337,7 @@ Martin, 2026-10-02 21:28 (lead pane, Decision comment on #26): "Lets do no login
 then picked **"One shared password"**: "No user name and no prompt: the shared password is built into the dev exe and
 checked by the server for /dev/." This replaced the per-person login first proposed here.
 
-- **One credential.** Everything under `https://coopmods.com/dev/` is behind HTTP Basic auth with the one user name
+- **One credential.** Everything under `https://ffbcoop.com/dev/` (and `https://coopmods.com/dev/`, the same folder) is behind HTTP Basic auth with the one user name
   `dev` and the shared password, checked by Caddy's `basic_auth` against a bcrypt hash in the site block
   (site/README.md, "The dev channel"). The dev exe never asks for anything and stores nothing.
 - **Built in at build time only.** The password is never in the repo, an issue, a PR or a log. The dev exe's build
@@ -343,15 +345,15 @@ checked by the server for /dev/." This replaced the per-person login first propo
   `~/.config/coopmods/ffb-dev-password`, where the lead keeps it) into a header in the build tree; with none, the
   build fails rather than make a dev exe with no credential. Only a dev build (`-DFFB_BUILD_DEV=ON`) reads it; the
   plain build and the public exe have no password at all.
-- **Every fetch** of a URL that starts with `https://coopmods.com/dev/` carries `Authorization: Basic …`, and only
-  those: never the public URLs, never another host, never plain http, and never through a redirect.
-- **A refused password** (games.json answers HTTP 401): the installed dev package starts with `coopmods.com refused
+- **Every fetch** of a URL that starts with `https://ffbcoop.com/dev/` or `https://coopmods.com/dev/` carries
+  `Authorization: Basic …`, and only those: never the public URLs, never another host, never plain http, and never through a redirect.
+- **A refused password** (games.json answers HTTP 401): the installed dev package starts with `ffbcoop.com refused
   the dev password (HTTP 401) -- starting the installed version.`, or the not-installed screen with that prefix.
 - **What it costs:** the password sits in every copy of the dev exe, so anyone holding the exe can read it out.
   There is no per-person revoke; a leaked password is replaced, and every dev exe already out there then needs the
   new one dropped in by hand once.
 
-Getting the first copy: Martin hands it over, or download `https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe`
+Getting the first copy: Martin hands it over, or download `https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe`
 in a browser (user `dev`, the shared password); from then on it updates itself.
 
 ### Publishing
@@ -359,7 +361,7 @@ in a browser (user `dev`, the shared password); from then on it updates itself.
 `python tools/publish.py --dev` (site/README.md, "The dev channel"). It puts the dev exe and/or a dev package under
 `/opt/downloads/ffb-coop-site/dev/` and nowhere else, signed with the same key, and refuses an exe that is not a dev
 version (so a release exe never lands on the dev channel, and `--release` refuses a dev exe), a version lower than the
-live dev one, and any upload while `https://coopmods.com/dev/games.json` does not answer 401 without the password.
+live dev one, and any upload while `https://ffbcoop.com/dev/games.json` does not answer 401 without the password.
 
 ## Network file-name rule
 
@@ -410,15 +412,15 @@ Martin's pick: "Run installed, warn (Recommended)".
 
 - **Server unreachable, package installed** — the game is found from `FFB Co-op\games.json`, every
   required file of the package is present, so the launcher prints one line and starts it:
-  `Could not reach coopmods.com -- starting the installed version.` No key press.
+  `Could not reach ffbcoop.com -- starting the installed version.` No key press.
 - **Server unreachable, no package yet** (no `FFB Co-op\games.json`, or a required file missing):
-  `Could not reach coopmods.com, and FFB Co-op is not installed in <game folder> yet. Connect to the
+  `Could not reach ffbcoop.com, and FFB Co-op is not installed in <game folder> yet. Connect to the
   internet and start it again.` Waits for a key, exits 1.
 - **games.json or the manifest invalid** — the same two cases, with
-  `coopmods.com sent a file this version cannot read (<reason>)` in place of `Could not reach
-  coopmods.com`.
+  `ffbcoop.com sent a file this version cannot read (<reason>)` in place of `Could not reach
+  ffbcoop.com`.
 - **games.json or the manifest unsigned or badly signed** — the same two cases, with
-  `coopmods.com sent a file without a valid signature (<reason>)` ([Signatures](#signatures)).
+  `ffbcoop.com sent a file without a valid signature (<reason>)` ([Signatures](#signatures)).
 
 ## The Mewgenics package
 
@@ -443,19 +445,40 @@ known yet, and FFB Co-op.exe assumes neither.
 
 | What | Where |
 |---|---|
-| Host | the server `coopmods.com` resolves to; it serves a placeholder at the root |
+| Host | the server `ffbcoop.com` and `coopmods.com` resolve to; it serves a placeholder at the root |
 | Web server | Caddy, in a container named `caddy` |
-| `https://coopmods.com/games.json` | games.json — served **without** the cookie |
-| `https://coopmods.com/games.json.sig` | its signature ([Signatures](#signatures)) — served **without** the cookie |
-| `https://coopmods.com/launcher/FFB%20Co-op.exe` | the launcher's own update — served **without** the cookie |
-| `https://mewgenics.coopmods.com/update/manifest.json` and its sibling files | the Mewgenics package, already published by mewgenics-coop, already cookie-free; `manifest.json.sig` beside it from mewgenics-coop#553 |
-| `https://coopmods.com/dev/…` | the [dev channel](#dev-channel) (#26): its games.json and `.sig`, `launcher/FFB Co-op - dev.exe`, and `<game id>/manifest.json`, its `.sig` and its files -- behind the shared dev password |
+| `https://ffbcoop.com/games.json` | games.json — served **without** the cookie |
+| `https://ffbcoop.com/games.json.sig` | its signature ([Signatures](#signatures)) — served **without** the cookie |
+| `https://ffbcoop.com/launcher/FFB%20Co-op.exe` | the launcher's own update — served **without** the cookie |
+| `https://mewgenics.ffbcoop.com/update/manifest.json` and its sibling files | the Mewgenics package, already published by mewgenics-coop, already cookie-free; `manifest.json.sig` beside it from mewgenics-coop#553 |
+| `https://ffbcoop.com/dev/…` | the [dev channel](#dev-channel) (#26): its games.json and `.sig`, `launcher/FFB Co-op - dev.exe`, and `<game id>/manifest.json`, its `.sig` and its files -- behind the shared dev password |
 
 The Caddyfile is a single-file bind mount: **never `sed -i` it** (that replaces the inode and the
 container keeps the old file). Edit it in place — open read/write, write, truncate — then
 `docker exec caddy caddy reload --config /etc/caddy/Caddyfile`. The cookie gate and its exceptions
 work as in mewgenics-coop's `site/README.md`: each cookie-free path is named in the site block.
 The publish script and the coopmods.com site block are #7.
+
+### Two names
+
+Added by #35. Some players' ISPs block the name coopmods.com (a player could only download with a VPN, then played
+co-op fine without one), so FFB Co-op.exe moved to ffbcoop.com: Martin, 2026-10-24 12:29, "please look into doing
+that". The one server answers to both names with the same files, the same `/dev/` password and the same handlers:
+`ffbcoop.com`, `www.ffbcoop.com` and `mewgenics.ffbcoop.com` beside `coopmods.com`, `www.coopmods.com` and
+`mewgenics.coopmods.com`. coopmods.com keeps serving, because launchers 1.0.0 and older read it.
+
+- **Every fetch tries ffbcoop.com first.** A URL on either name -- in the code, in games.json or in a manifest -- is
+  fetched from its ffbcoop.com form first, then from its coopmods.com form. A URL on any other host is fetched as it
+  is. games.json and manifests may name either; both are accepted.
+- **coopmods.com only when ffbcoop.com does not answer at all**: no connection, no name, no TLS, before the first
+  byte. Any HTTP status (a 404, a 401) is the server's answer and is not retried, and a transfer that breaks after
+  its first byte is not either, so no file is ever delivered twice.
+- **The console says which host answered**: `[*] reached ffbcoop.com` each time the host that serves a file changes,
+  and `[!] ffbcoop.com did not answer -- trying coopmods.com` for each fallback. The self-update says
+  `self-update: downloaded from <host>`.
+- **Error screens name ffbcoop.com.**
+- `tools/publish.py` writes and checks ffbcoop.com URLs, and site/games.json.in names the Mewgenics manifest on
+  `mewgenics.ffbcoop.com`.
 
 ## Versions
 

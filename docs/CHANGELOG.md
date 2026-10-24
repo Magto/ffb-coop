@@ -5,6 +5,7 @@ closes.
 
 ## Unreleased
 
+- FFB Co-op.exe downloads from ffbcoop.com, and from coopmods.com only when ffbcoop.com cannot be reached, so players whose internet provider blocks coopmods.com no longer need a VPN. Its messages now say ffbcoop.com. (#35)
 - FFB Co-op.exe v2 keeps the mod on a genuine Steam copy: it starts the game with its Steam app id set, so the game no longer restarts itself through Steam without co-op. Mewgenics no longer needs a `steam_appid.txt` next to it. (#28)
 - FFB Co-op.exe is v1: the first numbered release, and the first that checks signatures. Its window title says "FFB Co-op v1", and the 0.1.0 preview updates itself to it. Later releases are v2, v3, … (#24)
 - FFB Co-op.exe only trusts files signed by the FFB co-op key: a games.json or a game's manifest from coopmods.com without a valid signature is refused with a one-line warning, nothing is updated or downloaded, and the installed version starts. (#21)

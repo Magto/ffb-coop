@@ -89,7 +89,7 @@ class Writer(unittest.TestCase):
         doc = publish.build_games_json(copy.deepcopy(GAMES_IN), data)
         self.assertEqual(doc["schema"], 1)
         self.assertEqual(doc["launcher"], {
-            "version": "1.0.0", "url": "https://coopmods.com/launcher/FFB%20Co-op.exe",
+            "version": "1.0.0", "url": "https://ffbcoop.com/launcher/FFB%20Co-op.exe",
             "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
         self.assertEqual(doc["games"], GAMES_IN["games"])
         self.assertEqual(publish.validate_games_json(doc), [])
@@ -574,9 +574,9 @@ class Signing(unittest.TestCase):
 
 # Written out from docs/SPEC.md "Dev channel" and site/README.md, not read from tools/publish.py.
 DEV_REMOTE = "/opt/downloads/ffb-coop-site/dev"
-DEV_GAMES_URL = "https://coopmods.com/dev/games.json"
-DEV_LAUNCHER_URL = "https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe"
-DEV_MANIFEST_URL = "https://coopmods.com/dev/mewgenics/manifest.json"
+DEV_GAMES_URL = "https://ffbcoop.com/dev/games.json"
+DEV_LAUNCHER_URL = "https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe"
+DEV_MANIFEST_URL = "https://ffbcoop.com/dev/mewgenics/manifest.json"
 
 
 class DevServer(FakeServer):
@@ -611,7 +611,7 @@ class DevServer(FakeServer):
 
     def http_status(self, url, login=None, timeout=20):
         self.https.append(url)
-        if url.startswith("https://coopmods.com/dev/") and not login:
+        if url.startswith("https://ffbcoop.com/dev/") and not login:
             return (401, b"") if self.gate else (200, publish.PLACEHOLDER)
         raise AssertionError(f"unexpected https request {url} login={login!r}")
 
@@ -834,6 +834,22 @@ class Dev(unittest.TestCase):
         doc["games"][0]["manifest"] = DEV_MANIFEST_URL
         with self.assertRaises(publish.Refused):
             publish.check_no_dev_urls(doc)
+
+    def test_public_games_json_pointing_at_dev_on_the_old_name_refused(self):
+        # #35: the dev channel moved to ffbcoop.com, and coopmods.com/dev/ is the same folder under the old name.
+        doc = publish.build_games_json(copy.deepcopy(GAMES_IN), fake_exe((1, 0, 0, 0)))
+        for url in ("https://coopmods.com/dev/mewgenics/manifest.json", "https://ffbcoop.com/dev/x/manifest.json"):
+            with self.subTest(url=url), self.assertRaises(publish.Refused):
+                doc["games"][0]["manifest"] = url
+                publish.check_no_dev_urls(doc)
+
+    def test_public_urls_are_on_ffbcoop(self):
+        # #35, from the issue: the games.json publish.py writes names ffbcoop.com for the launcher.
+        self.assertEqual(publish.LAUNCHER_URL, "https://ffbcoop.com/launcher/FFB%20Co-op.exe")
+        self.assertEqual(publish.GAMES_URL, "https://ffbcoop.com/games.json")
+        games_in = load(os.path.join(REPO, "site", "games.json.in"))
+        self.assertEqual([g["manifest"] for g in games_in["games"]],
+                         ["https://mewgenics.ffbcoop.com/update/manifest.json"])
 
     def test_dev_flags_without_dev_refused(self):
         for extra in (["--no-exe"], ["--package", "mewgenics", self.pkg], ["--package-version", "1"],

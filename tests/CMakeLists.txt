@@ -16,7 +16,7 @@ add_test(NAME test_selfupdate COMMAND test_selfupdate)
 # The exe itself (Done bullet 1 of #2), as separate tests: with PASS_REGULAR_EXPRESSION
 # set ctest ignores the exit code, so the output and the exit code cannot share one.
 # Both run `FFB Co-op.exe --version`, which stops before any network or folder work
-# (#6): the suite never depends on the network or on what coopmods.com serves. The
+# (#6): the suite never depends on the network or on what the server serves. The
 # flow's screens and exit codes are test_app's, over fakes.
 # ffb_coop_exits_0: runs and exits 0 (no pass regex, so the exit code decides).
 add_test(NAME ffb_coop_exits_0 COMMAND ffb_coop --version)
@@ -26,14 +26,19 @@ set_tests_properties(ffb_coop_version_line PROPERTIES
     PASS_REGULAR_EXPRESSION "^FFB Co-op [0-9]+\\.[0-9]+\\.[0-9]+")
 # ffb_coop_offline_not_installed: the whole exe with no argument, in build\Release
 # (no game, nothing installed). FFB_COOP_OFFLINE=1 makes every fetch fail
-# (src/app_win.cpp), so this takes the offline path whatever coopmods.com serves.
+# (src/app_win.cpp), so this takes the offline path whatever the server serves.
 # ctest pipes the output, so the key wait is skipped (WindowsAppIo::wait_key).
 add_test(NAME ffb_coop_offline_not_installed COMMAND ffb_coop)
 set_tests_properties(ffb_coop_offline_not_installed PROPERTIES
-    PASS_REGULAR_EXPRESSION "Could not reach coopmods.com, and FFB Co-op is not installed in ")
+    PASS_REGULAR_EXPRESSION "Could not reach ffbcoop.com, and FFB Co-op is not installed in ")
+# ffb_coop_offline_tries_coopmods: the same run, and the exe's network is the
+# ffbcoop.com-first one (#35): ffbcoop.com does not answer, so coopmods.com is tried.
+add_test(NAME ffb_coop_offline_tries_coopmods COMMAND ffb_coop)
+set_tests_properties(ffb_coop_offline_tries_coopmods PROPERTIES
+    PASS_REGULAR_EXPRESSION "\\[!\\] ffbcoop\\.com did not answer -- trying coopmods\\.com")
 # Every test that runs the exe: never the live server, and never a hang.
 set_tests_properties(ffb_coop_exits_0 ffb_coop_version_line ffb_coop_offline_not_installed
-    PROPERTIES ENVIRONMENT "FFB_COOP_OFFLINE=1" TIMEOUT 30)
+    ffb_coop_offline_tries_coopmods PROPERTIES ENVIRONMENT "FFB_COOP_OFFLINE=1" TIMEOUT 30)
 
 # games.json parser and the network file-name rule (#3). third_party/json.hpp is
 # nlohmann/json 3.12.0, the copy mewgenics-coop's loader uses.
@@ -93,11 +98,18 @@ target_compile_options(test_child_env PRIVATE /W3)
 add_test(NAME test_child_env COMMAND test_child_env)
 
 # #26: the dev channel -- the channel table, the base64 and the rule that sends the
-# dev credential to coopmods.com/dev/ and nowhere else.
+# dev credential to ffbcoop.com/dev/ (and its coopmods.com twin) and nowhere else.
 add_executable(test_channel test_channel.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp)
 target_include_directories(test_channel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(test_channel PRIVATE /W3)
 add_test(NAME test_channel COMMAND test_channel)
+
+# #35: ffbcoop.com first, coopmods.com when it does not answer -- the host order,
+# the fallback and the dev login on both names, over a fake inner network.
+add_executable(test_mirror test_mirror.cpp ${CMAKE_SOURCE_DIR}/src/net.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp)
+target_include_directories(test_mirror PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_mirror PRIVATE /W3)
+add_test(NAME test_mirror COMMAND test_mirror)
 
 # #26: ffb_version.h built with the dev switch, as the ffb_coop_dev target builds it.
 add_executable(test_version_dev test_version_dev.cpp ${CMAKE_SOURCE_DIR}/src/channel.cpp)
@@ -116,7 +128,7 @@ if(TARGET ffb_coop_dev)
         PASS_REGULAR_EXPRESSION "^FFB Co-op - dev [0-9]+\\.0\\.[1-9][0-9]*")
     add_test(NAME ffb_coop_dev_offline_not_installed COMMAND ffb_coop_dev)
     set_tests_properties(ffb_coop_dev_offline_not_installed PROPERTIES
-        PASS_REGULAR_EXPRESSION "Could not reach coopmods.com, and FFB Co-op is not installed in ")
+        PASS_REGULAR_EXPRESSION "Could not reach ffbcoop.com, and FFB Co-op is not installed in ")
     set_tests_properties(ffb_coop_dev_exits_0 ffb_coop_dev_version_line ffb_coop_dev_offline_not_installed
         PROPERTIES ENVIRONMENT "FFB_COOP_OFFLINE=1" TIMEOUT 30)
 endif()

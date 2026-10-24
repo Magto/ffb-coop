@@ -1,6 +1,8 @@
 // channel.cpp -- see channel.h.
 #include "channel.h"
 
+#include <cctype>
+
 namespace ffb {
 
 namespace {
@@ -17,9 +19,9 @@ const Channel kPublic = {
 const Channel kDev = {
     "dev",
     "FFB Co-op - dev.exe",
-    "https://coopmods.com/dev/games.json",
+    "https://ffbcoop.com/dev/games.json",
     "FFB Co-op dev",
-    "https://coopmods.com/dev/",
+    "https://ffbcoop.com/dev/",
     "MEWCOOP_NOUPDATE=1",
 };
 
@@ -30,6 +32,15 @@ bool starts_with(const std::string& s, const char* prefix) {
     const std::string p(prefix);
     return s.size() >= p.size() && s.compare(0, p.size(), p) == 0;
 }
+
+const char kHttps[] = "https://";
+
+// The names the one server answers to, as {ffbcoop.com, coopmods.com} pairs.
+const char* const kTwins[][2] = {
+    {"ffbcoop.com", "coopmods.com"},
+    {"www.ffbcoop.com", "www.coopmods.com"},
+    {"mewgenics.ffbcoop.com", "mewgenics.coopmods.com"},
+};
 
 }  // namespace
 
@@ -42,6 +53,29 @@ const Channel& this_channel() {
 #else
     return kPublic;
 #endif
+}
+
+std::string url_host(const std::string& url) {
+    const std::size_t start = sizeof(kHttps) - 1;
+    if (url.size() < start) return std::string();
+    for (std::size_t i = 0; i < start; ++i)
+        if (std::tolower((unsigned char)url[i]) != kHttps[i]) return std::string();
+    const std::size_t end = url.find_first_of("/?#", start);
+    std::string host = url.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    if (host.find_first_of(":@") != std::string::npos) return std::string();
+    for (char& c : host) c = (char)std::tolower((unsigned char)c);
+    return host;
+}
+
+std::vector<std::string> mirror_urls(const std::string& url) {
+    const std::string host = url_host(url);
+    if (!host.empty())
+        for (const auto& twin : kTwins)
+            if (host == twin[0] || host == twin[1]) {
+                const std::string rest = url.substr(sizeof(kHttps) - 1 + host.size());
+                return {kHttps + std::string(twin[0]) + rest, kHttps + std::string(twin[1]) + rest};
+            }
+    return {url};
 }
 
 std::string base64(const std::string& bytes) {
@@ -70,7 +104,7 @@ std::string base64(const std::string& bytes) {
 
 std::string login_header(const Channel& ch, const std::string& login, const std::string& url) {
     if (!ch.login_prefix || !starts_with(ch.login_prefix, "https://")) return std::string();
-    if (!starts_with(url, ch.login_prefix)) return std::string();
+    if (!starts_with(mirror_urls(url).front(), ch.login_prefix)) return std::string();
     const std::size_t colon = login.find(':');
     if (colon == std::string::npos || colon == 0) return std::string();
     return "Authorization: Basic " + base64(login);

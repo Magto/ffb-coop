@@ -1,4 +1,4 @@
-"""Publish FFB Co-op.exe and games.json to coopmods.com (SHIP_CMD, #7).
+"""Publish FFB Co-op.exe and games.json to ffbcoop.com (SHIP_CMD, #7; ffbcoop.com since #35).
 
     python tools/publish.py [--release N] [--exe "build/Release/FFB Co-op.exe"] [--dry-run]
 
@@ -21,7 +21,7 @@ What it does, in order, and what makes it refuse:
 4. Compares with the games.json that is live now. Refuses a lower launcher version (installed launchers
    would never take it) and the same version with different bytes (installed launchers compare versions
    only, so they would never fetch the new bytes -- bump the version).
-5. Checks that coopmods.com routes /games.json.sig to the files (not the placeholder), so a launcher can
+5. Checks that ffbcoop.com routes /games.json.sig to the files (not the placeholder), so a launcher can
    fetch the signature. Uploads the exe under a temporary name, checks its sha256 on the server, moves it
    over launcher/FFB Co-op.exe; then games.json.sig and games.json the same way, games.json LAST, so it never
    advertises bytes that are not up yet. Then fetches all three over https WITHOUT a cookie and checks them,
@@ -35,14 +35,17 @@ The dev channel (#26, docs/SPEC.md "Dev channel") -- FFB Co-op - dev.exe and dev
     python tools/publish.py --dev [--exe "build/Release/FFB Co-op - dev.exe" | --no-exe]
                                   [--package GAME_ID DIR --package-version V [--optional NAME ...]] [--dry-run]
 
-Everything it writes on the server is under /opt/downloads/ffb-coop-site/dev/, served at coopmods.com/dev/ behind
+Everything it writes on the server is under /opt/downloads/ffb-coop-site/dev/, served at ffbcoop.com/dev/ behind
 the dev password; it never touches a public file (dev_put refuses any other path). The same gates, the same signing key,
 the same version rules against the live dev games.json (read over ssh: publishing needs no password). The exe must be a
 dev version MAJOR.0.D with D >= 1, which no release exe ever is; --release is refused with --dev. The games list is
 site/dev-games.json.in. --package writes a manifest for every file in DIR (all required except --optional ones),
-signs it and uploads it to coopmods.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
-Before uploading it checks that coopmods.com/dev/games.json answers 401 without a login, so nothing goes up while
+signs it and uploads it to ffbcoop.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
+Before uploading it checks that ffbcoop.com/dev/games.json answers 401 without a login, so nothing goes up while
 the gate is not deployed; afterwards, that every published URL still does.
+
+Every URL it writes and checks is on ffbcoop.com (#35). coopmods.com is the same server under its old name and keeps
+serving the same files, because 1.0.0 launchers read it; a launcher from #35 on falls back to it on its own.
 """
 import argparse, base64, hashlib, json, os, re, struct, subprocess, sys, tempfile, urllib.error, urllib.request
 
@@ -52,12 +55,13 @@ import signing  # noqa: E402  -- tools/signing.py, #21
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOST = "root@89.167.37.21"
 REMOTE = "/opt/downloads/ffb-coop-site"      # /downloads/ffb-coop-site in the caddy container
-URL = "https://coopmods.com"
+URL = "https://ffbcoop.com"
+OLD_URL = "https://coopmods.com"             # the same server under its old name (#35)
 EXE_NAME = "FFB Co-op.exe"
 LAUNCHER_URL = f"{URL}/launcher/FFB%20Co-op.exe"
 GAMES_URL = f"{URL}/games.json"
 SIG_URL = GAMES_URL + signing.SIG_SUFFIX
-PLACEHOLDER = b"Mewgenics Coop -- coopmods.com"   # what the site block answers for a path it does not route
+PLACEHOLDER = b"Mewgenics Coop -- coopmods.com"   # what the site block answers, on both names, for a path it does not route
 DEFAULT_EXE = os.path.join(REPO, "build", "Release", EXE_NAME)
 GAMES_IN = os.path.join(REPO, "site", "games.json.in")
 GATES = ("tools/doc_rules.sh", "tools/scan_rules.sh")   # DOC_RULES_CMD, SCAN_RULES_CMD
@@ -258,7 +262,8 @@ def check_against_live(new, live):
 
 
 def under_dev(url):
-    return isinstance(url, str) and url.startswith(DEV_URL + "/")
+    """On the dev channel under either name of the server (#35)."""
+    return isinstance(url, str) and url.startswith((DEV_URL + "/", OLD_URL + "/dev/"))
 
 
 def check_no_dev_urls(doc):
@@ -416,7 +421,7 @@ def verify_live(doc, keys):
 
 
 def check_sig_route():
-    """Refuse before uploading anything when coopmods.com does not serve /games.json.sig from the files: the
+    """Refuse before uploading anything when ffbcoop.com does not serve /games.json.sig from the files: the
     site block answers its placeholder for a path it does not route (site/README.md), and a launcher that
     cannot fetch the signature refuses games.json."""
     try:
@@ -424,7 +429,7 @@ def check_sig_route():
     except Exception as e:   # noqa: BLE001 -- any network failure
         raise Refused(f"cannot read {SIG_URL}: {e}")
     if data is not None and data.strip() == PLACEHOLDER:
-        raise Refused(f"coopmods.com does not route {SIG_URL} to the files yet -- add /games.json.sig to the "
+        raise Refused(f"ffbcoop.com does not route {SIG_URL} to the files yet -- add /games.json.sig to the "
                       "site block's matcher first (site/README.md)")
 
 
@@ -464,7 +469,7 @@ def http_status(url, login=None, timeout=20):
 
 
 def check_dev_gate():
-    """Refuse before uploading anything unless coopmods.com/dev/ answers 401 without a login: a dev file put up
+    """Refuse before uploading anything unless ffbcoop.com/dev/ answers 401 without a login: a dev file put up
     while the gate is not deployed would be public (site/README.md, "The dev channel")."""
     try:
         code, body = http_status(DEV_GAMES_URL)
@@ -723,7 +728,7 @@ def publish(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--dev", action="store_true", help="publish to the dev channel, coopmods.com/dev/ (#26)")
+    ap.add_argument("--dev", action="store_true", help="publish to the dev channel, ffbcoop.com/dev/ (#26)")
     ap.add_argument("--exe", help="the built launcher (default: build/Release/FFB Co-op.exe, or FFB Co-op - dev.exe "
                                   "with --dev)")
     ap.add_argument("--no-exe", action="store_true", help="--dev: keep the live dev launcher, publish a package only")

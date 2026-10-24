@@ -31,9 +31,9 @@ option(FFB_BUILD_DEV "build FFB Co-op - dev.exe too (needs the dev password)" OF
 
 # FFB Co-op.exe and FFB Co-op - dev.exe (#26) are one source built twice: the dev
 # exe is the same code with FFB_DEV_CHANNEL defined, which picks the dev channel
-# in src/channel.cpp (coopmods.com/dev/, the `FFB Co-op dev\` package folder),
+# in src/channel.cpp (ffbcoop.com/dev/, the `FFB Co-op dev\` package folder),
 # the dev names and version in src/ffb_version.h, and the shared dev password
-# sent to coopmods.com/dev/ (src/app_win.cpp). Not a fork: nothing else differs.
+# sent to ffbcoop.com/dev/ and its coopmods.com twin (src/app_win.cpp). Not a fork: nothing else differs.
 function(ffb_coop_exe target output_name)
     add_executable(${target} src/main.cpp res/ffb_coop.rc)
     # Self-update (#5): the logic, and its Windows side (WinHTTP, BCrypt).

@@ -42,7 +42,7 @@ bool is_console(DWORD which) {
 }
 
 // FFB_COOP_OFFLINE=1 -- for the exe's own ctest checks only: every fetch fails
-// as if there were no network, so a test can never reach coopmods.com, and with
+// as if there were no network, so a test can never reach the server, and with
 // no games.json there is no self-update of the build either.
 bool offline_for_tests() {
     wchar_t flag[8] = {};
@@ -56,9 +56,15 @@ public:
 
 class WindowsAppIo : public AppIo {
 public:
-    WindowsAppIo() : net_(L"FFBCoop/1"), offline_(offline_for_tests()) {}
+    WindowsAppIo()
+        : net_(L"FFBCoop/1"), offline_(offline_for_tests()),
+          mirror_(offline_ ? static_cast<Net&>(no_net_) : net_, [](const std::string& line) {
+              std::printf("%s\n", line.c_str());
+              std::fflush(stdout);
+          }) {}
 
-    Net& net() override { return offline_ ? static_cast<Net&>(no_net_) : net_; }
+    // ffbcoop.com first, coopmods.com when it does not answer (#35, src/net.h).
+    Net& net() override { return mirror_; }
     SelfUpdateIo& self_update_io() override { return windows_self_update_io(); }
 
     bool start_process(const std::string& exe, const std::string& cmdline,
@@ -118,6 +124,7 @@ private:
     WinHttpNet net_;
     NoNet      no_net_;
     bool       offline_;
+    MirrorNet  mirror_;
 };
 
 std::wstring self_folder() {

@@ -1,16 +1,22 @@
-# coopmods.com -- what FFB Co-op.exe reads
+# ffbcoop.com -- what FFB Co-op.exe reads
+
+The server answers to two names with the same files (#35): `ffbcoop.com`, `www.ffbcoop.com` and
+`mewgenics.ffbcoop.com` share one Caddy block each with `coopmods.com`, `www.coopmods.com` and
+`mewgenics.coopmods.com` (the web-infra manager, 2026-10-24). FFB Co-op.exe and `tools/publish.py` use ffbcoop.com;
+coopmods.com keeps serving for launchers 1.0.0 and older, and as the launcher's fallback (`docs/SPEC.md`, "Two
+names"). The blocks below are shown under their coopmods.com names, as they were first deployed.
 
 Three things, all served WITHOUT a cookie, because `FFB Co-op.exe` has no password to send:
 
 | URL | File on the server | Written by |
 |---|---|---|
-| `https://coopmods.com/games.json` | `/opt/downloads/ffb-coop-site/games.json` | `tools/publish.py` |
-| `https://coopmods.com/games.json.sig` | `/opt/downloads/ffb-coop-site/games.json.sig` | `tools/publish.py` (#21) |
-| `https://coopmods.com/launcher/FFB%20Co-op.exe` | `/opt/downloads/ffb-coop-site/launcher/FFB Co-op.exe` | `tools/publish.py` |
+| `https://ffbcoop.com/games.json` | `/opt/downloads/ffb-coop-site/games.json` | `tools/publish.py` |
+| `https://ffbcoop.com/games.json.sig` | `/opt/downloads/ffb-coop-site/games.json.sig` | `tools/publish.py` (#21) |
+| `https://ffbcoop.com/launcher/FFB%20Co-op.exe` | `/opt/downloads/ffb-coop-site/launcher/FFB Co-op.exe` | `tools/publish.py` |
 
-Every other path on `coopmods.com` answers the placeholder text `Mewgenics Coop -- coopmods.com`. What the
+Every other path on either name answers the placeholder text `Mewgenics Coop -- coopmods.com`. What the
 launcher does with games.json and its signature is `docs/SPEC.md` (the signature: "Signatures"); the Mewgenics package itself is not here but at
-`https://mewgenics.coopmods.com/update/`, published by mewgenics-coop (`tools/publish_site.py`).
+`https://mewgenics.ffbcoop.com/update/` (and `mewgenics.coopmods.com`), published by mewgenics-coop (`tools/publish_site.py`).
 
 ## Server
 
@@ -106,7 +112,7 @@ in the `doc-rules` check, and `ctest` runs them as `test_publish`.
 
 ## The dev channel (#26)
 
-`FFB Co-op - dev.exe` reads everything under `https://coopmods.com/dev/`, **behind one shared password** (HTTP Basic
+`FFB Co-op - dev.exe` reads everything under `https://ffbcoop.com/dev/` (`https://coopmods.com/dev/` as its fallback), **behind one shared password** (HTTP Basic
 with the one user `dev`, Caddy's `basic_auth`). The password is built into the dev exe; there is no prompt and no user
 name to type. What the dev exe does with it is `docs/SPEC.md`, "Dev channel".
 
@@ -125,9 +131,9 @@ one-line warning, and its owner drops the new dev exe in by hand once.
 
 | URL | File on the server | Written by |
 |---|---|---|
-| `https://coopmods.com/dev/games.json` and `.sig` | `/opt/downloads/ffb-coop-site/dev/games.json` and `.sig` | `tools/publish.py --dev` |
-| `https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` | `/opt/downloads/ffb-coop-site/dev/launcher/FFB Co-op - dev.exe` | `tools/publish.py --dev` |
-| `https://coopmods.com/dev/<game id>/manifest.json`, `.sig` and its files | `/opt/downloads/ffb-coop-site/dev/<game id>/…` | `tools/publish.py --dev --package <game id> <folder>` |
+| `https://ffbcoop.com/dev/games.json` and `.sig` | `/opt/downloads/ffb-coop-site/dev/games.json` and `.sig` | `tools/publish.py --dev` |
+| `https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` | `/opt/downloads/ffb-coop-site/dev/launcher/FFB Co-op - dev.exe` | `tools/publish.py --dev` |
+| `https://ffbcoop.com/dev/<game id>/manifest.json`, `.sig` and its files | `/opt/downloads/ffb-coop-site/dev/<game id>/…` | `tools/publish.py --dev --package <game id> <folder>` |
 
 ### What a deploy must do (not done yet)
 
