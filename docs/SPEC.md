@@ -298,11 +298,16 @@ alone. The switch changes only the values in
 this table (`src/channel.cpp`) and the names and version in `src/ffb_version.h`; the flow, the signature check, the
 self-update and the package update are the same code.
 
+The dev games.json names its launcher and manifests on `coopmods.com/dev/`, not ffbcoop.com (#35, Martin 2026-10-24
+16:40: "We need the 2.0.1 mod launcher to be able to self update"): a dev exe up to 2.0.1 sends the dev password only
+to `https://coopmods.com/dev/`, and got HTTP 401 on the ffbcoop.com URL. A dev exe from 2.0.2 on fetches the
+ffbcoop.com twin first, with the password, so both read the same file.
+
 | | `FFB Co-op.exe` | `FFB Co-op - dev.exe` |
 |---|---|---|
 | games.json | `https://ffbcoop.com/games.json` | `https://ffbcoop.com/dev/games.json` |
-| Its own update | `https://ffbcoop.com/launcher/FFB%20Co-op.exe` | `https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe` |
-| A game's manifest | whatever games.json names (Mewgenics: `https://mewgenics.ffbcoop.com/update/manifest.json`) | whatever the dev games.json names (Mewgenics: `https://ffbcoop.com/dev/mewgenics/manifest.json`) |
+| Its own update | `https://ffbcoop.com/launcher/FFB%20Co-op.exe` | `https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe`, tried on ffbcoop.com first |
+| A game's manifest | whatever games.json names (Mewgenics: `https://mewgenics.ffbcoop.com/update/manifest.json`) | whatever the dev games.json names (Mewgenics: `https://coopmods.com/dev/mewgenics/manifest.json`, tried on ffbcoop.com first) |
 | Package folder | `<game folder>\FFB Co-op\` | `<game folder>\FFB Co-op dev\` |
 | Password | none | the shared dev password, below |
 | Version | `N.0.0` (vN) | `N.0.D`: dev build D, D at least 1 (`FFB_DEV_BUILD`) |

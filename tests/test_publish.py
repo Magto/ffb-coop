@@ -575,8 +575,12 @@ class Signing(unittest.TestCase):
 # Written out from docs/SPEC.md "Dev channel" and site/README.md, not read from tools/publish.py.
 DEV_REMOTE = "/opt/downloads/ffb-coop-site/dev"
 DEV_GAMES_URL = "https://ffbcoop.com/dev/games.json"
-DEV_LAUNCHER_URL = "https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe"
-DEV_MANIFEST_URL = "https://ffbcoop.com/dev/mewgenics/manifest.json"
+DEV_OLD_GAMES_URL = "https://coopmods.com/dev/games.json"
+# The launcher and manifest URLs stay on coopmods.com (#35): dev exe 2.0.1 sends the dev password only to URLs
+# starting with its login prefix, "https://coopmods.com/dev/" (src/channel.cpp kDev at 95411e0~1).
+DEV_LOGIN_PREFIX_201 = "https://coopmods.com/dev/"
+DEV_LAUNCHER_URL = "https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe"
+DEV_MANIFEST_URL = "https://coopmods.com/dev/mewgenics/manifest.json"
 
 
 class DevServer(FakeServer):
@@ -611,7 +615,7 @@ class DevServer(FakeServer):
 
     def http_status(self, url, login=None, timeout=20):
         self.https.append(url)
-        if url.startswith("https://ffbcoop.com/dev/") and not login:
+        if url.startswith(("https://ffbcoop.com/dev/", "https://coopmods.com/dev/")) and not login:
             return (401, b"") if self.gate else (200, publish.PLACEHOLDER)
         raise AssertionError(f"unexpected https request {url} login={login!r}")
 
@@ -725,6 +729,60 @@ class Dev(unittest.TestCase):
         self.assertTrue(first_scp > 0 and s.https[0] == DEV_GAMES_URL)
         self.assertIn(DEV_MANIFEST_URL, s.https)
         self.assertIn(DEV_LAUNCHER_URL, s.https)
+        self.assertIn(DEV_OLD_GAMES_URL, s.https)
+        # the no-login check covers the name 2.0.2+ reads first too, not only the one written in games.json
+        self.assertIn("https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe", s.https)
+        self.assertIn("https://ffbcoop.com/dev/mewgenics/manifest.json", s.https)
+
+    def with_password_server(self, stale=None):
+        """http_status as the live gate with the dev password set: 401 without a login, and with it the server's
+        games.json -- except under the name `stale`, which answers older bytes."""
+        os.environ[publish.DEV_PASSWORD_ENV] = "pw"
+        logged = []
+        def answer(url, login=None, timeout=20):
+            self.server.https.append(url)
+            if not login:
+                return self.server.http_status(url)
+            logged.append(url)
+            if url in (DEV_GAMES_URL, DEV_OLD_GAMES_URL):
+                if stale and url.startswith(stale):
+                    return 200, b'{"old": true}'
+                return 200, self.server.files[DEV_REMOTE + "/games.json"]
+            raise AssertionError(f"unexpected login request {url}")
+        return answer, logged
+
+    def test_read_back_with_the_password_on_both_names(self):
+        answer, logged = self.with_password_server()
+        with mock.patch.object(publish, "http_status", side_effect=answer):
+            self.assertEqual(self.main(), 0)
+        self.assertEqual(logged, [DEV_GAMES_URL, DEV_OLD_GAMES_URL])
+
+    def test_read_back_stale_on_the_name_2_0_1_reads_refused(self):
+        answer, _ = self.with_password_server(stale="https://coopmods.com/")
+        with mock.patch.object(publish, "http_status", side_effect=answer):
+            self.assertEqual(self.main(), 1)
+
+    def test_every_dev_url_gets_the_password_from_a_2_0_1_exe(self):
+        # #35: 2.0.1 got HTTP 401 on a launcher URL on ffbcoop.com and could not self-update.
+        self.assertEqual(self.main(), 0)
+        games = json.loads(self.server.files[DEV_REMOTE + "/games.json"])
+        urls = [games["launcher"]["url"]] + [g["manifest"] for g in games["games"]]
+        for url in urls:
+            self.assertTrue(url.startswith(DEV_LOGIN_PREFIX_201), url)
+
+    def test_no_exe_moves_a_live_ffbcoop_launcher_url_to_coopmods(self):
+        live = self.live_dev("1.0.3")
+        live["launcher"]["url"] = "https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe"   # as 2.0.2 went up
+        self.server.files[DEV_REMOTE + "/games.json"] = publish.dumps(live).encode()
+        self.assertEqual(self.main("--no-exe", exe=False), 0)
+        games = json.loads(self.server.files[DEV_REMOTE + "/games.json"])
+        self.assertEqual(games["launcher"], dict(live["launcher"], url=DEV_LAUNCHER_URL))
+
+    def test_dev_launcher_url_on_ffbcoop_refused(self):
+        with mock.patch.object(publish, "DEV_LAUNCHER_URL",
+                               "https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe"):
+            self.assertEqual(self.main(), 1)
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
 
     def test_gate_not_up_refused_before_any_upload(self):
         self.server.gate = False
