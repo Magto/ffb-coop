@@ -15,7 +15,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <set>
 #include <string>
+#include <utility>
 
 namespace ffb {
 
@@ -69,6 +71,26 @@ public:
 
 // A GET into memory. -> the HTTP status, as Net::get.
 int get_body(Net& net, const std::string& url, std::string* body);
+
+// --- ffbcoop.com first, coopmods.com second (#35, src/channel.h) -------------
+
+// A Net that fetches every URL through first_answer(): the next name only after
+// a transport failure (status 0) before the first byte, so no body is ever
+// delivered twice. A name that did not answer is skipped for the rest of this
+// start. `log` gets one line each time the host that serves a file changes
+// ("[*] reached ffbcoop.com"), and one the first time a name does not answer.
+class MirrorNet : public Net {
+public:
+    using Log = std::function<void(const std::string& line)>;
+    MirrorNet(Net& inner, Log log) : inner_(inner), log_(std::move(log)) {}
+    int get(const std::string& url, const Sink& sink) override;
+
+private:
+    Net&        inner_;
+    Log         log_;
+    std::string last_host_;   // the host that served the last file
+    std::set<std::string> silent_;   // hosts that did not answer this start
+};
 
 #ifdef _WIN32
 // WinHTTP, the system proxy, https and http. `receive_timeout_ms` bounds each

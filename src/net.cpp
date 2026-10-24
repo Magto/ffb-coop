@@ -142,6 +142,36 @@ int get_body(Net& net, const std::string& url, std::string* body) {
     return net.get(url, [body](const char* p, std::size_t n) { body->append(p, n); return true; });
 }
 
+// --- ffbcoop.com first (#35) ------------------------------------------------
+
+int MirrorNet::get(const std::string& url, const Sink& sink) {
+    const std::string last = mirror_urls(url).back();
+    int status = 0;
+    const std::string served = first_answer(
+        url,
+        [&](const std::string& u) {
+            // A name that did not answer once this start is not asked again,
+            // unless it is the last one left: a dropped connection costs its
+            // timeout once, not once per file.
+            if (u != last && silent_.count(url_host(u))) return false;
+            bool got_bytes = false;
+            status = inner_.get(u, [&](const char* p, std::size_t n) {
+                got_bytes = true;
+                return sink(p, n);
+            });
+            return status != 0 || got_bytes;
+        },
+        [&](const std::string& host, const std::string& next) {
+            if (silent_.insert(host).second && log_) log_("[!] " + host + " did not answer -- trying " + next);
+        });
+    if (status != 0) {
+        const std::string host = url_host(served);
+        if (host != last_host_ && log_) log_("[*] reached " + (host.empty() ? served : host));
+        last_host_ = host;
+    }
+    return status;
+}
+
 #ifdef _WIN32
 
 namespace {

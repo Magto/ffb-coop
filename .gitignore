@@ -2,3 +2,4 @@ build/
 site/games.json
 __pycache__/
 site/dev/
+build-*/

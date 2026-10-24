@@ -105,8 +105,30 @@ public:
         }
     }
 
+    // ffbcoop.com first, the coopmods.com form only when ffbcoop.com does not
+    // answer at all (#35, src/channel.h): an HTTP status is the server's answer.
     bool download(const std::string& url, const std::wstring& dest,
                   std::string* sha256_hex, std::uint64_t* got) override {
+        bool ok = false;
+        const std::string served = first_answer(
+            url,
+            [&](const std::string& u) {
+                bool answered = false;
+                ok = download_from(u, dest, sha256_hex, got, &answered);
+                return answered;
+            },
+            [&](const std::string& host, const std::string& next) {
+                warn("self-update: " + host + " did not answer -- trying " + next);
+            });
+        if (ok) note("self-update: downloaded from " + url_host(served));
+        return ok;
+    }
+
+private:
+    // One GET of `url` into `dest`. `answered`: the server sent a response, so
+    // another name for it would only say the same.
+    bool download_from(const std::string& url, const std::wstring& dest,
+                       std::string* sha256_hex, std::uint64_t* got, bool* answered) {
         *got = 0;
         const std::wstring wurl = widen(url);
 
@@ -147,6 +169,7 @@ public:
                                 login.empty() ? 0 : (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
             !WinHttpReceiveResponse(req.h, nullptr))
             return false;
+        *answered = true;
         DWORD status = 0, sz = sizeof(status);
         WinHttpQueryHeaders(req.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                             WINHTTP_HEADER_NAME_BY_INDEX, &status, &sz, WINHTTP_NO_HEADER_INDEX);
@@ -175,6 +198,7 @@ public:
         return s.finish(sha256_hex);
     }
 
+public:
     bool move_replace(const std::wstring& from, const std::wstring& to) override {
         if (MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING)) return true;
         const DWORD err = GetLastError();

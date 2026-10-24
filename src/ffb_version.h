@@ -14,8 +14,8 @@
 // MAJOR.0.D, dev build D of the release in the works. Bump FFB_DEV_BUILD and
 // FFB_DEV_VERSION_STR together before every `tools/publish.py --dev`: a dev exe
 // only updates to a higher version, exactly like the public one.
-#define FFB_DEV_BUILD       1
-#define FFB_DEV_VERSION_STR "2.0.1"
+#define FFB_DEV_BUILD       2
+#define FFB_DEV_VERSION_STR "2.0.2"
 
 #ifdef FFB_DEV_CHANNEL
 #define FFB_VERSION_PATCH FFB_DEV_BUILD

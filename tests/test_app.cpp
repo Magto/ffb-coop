@@ -288,7 +288,7 @@ void test_offline_installed() {
     CHECK(ffb::run_app(input(t, "-x"), io) == 0);
     CHECK(io.errs.size() == 1);
     if (io.errs.size() == 1)
-        CHECK(io.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
+        CHECK(io.errs[0] == "Could not reach ffbcoop.com -- starting the installed version.");
     CHECK(io.keys == 0);
     CHECK(io.starts.size() == 1);
     if (io.starts.size() == 1)
@@ -305,7 +305,7 @@ void test_offline_not_installed() {
     CHECK(ffb::run_app(input(t), io) == 1);
     CHECK(io.errs.size() == 2);
     if (io.errs.size() == 2) {
-        CHECK(io.errs[0] == "Could not reach coopmods.com, and FFB Co-op is not installed in " + t.str() +
+        CHECK(io.errs[0] == "Could not reach ffbcoop.com, and FFB Co-op is not installed in " + t.str() +
                                 " yet. Connect to the internet and start it again.");
         CHECK(io.errs[1] == "Press any key to exit.");
     }
@@ -314,7 +314,7 @@ void test_offline_not_installed() {
 }
 
 void test_offline_file_missing() {
-    const std::string not_installed = "Could not reach coopmods.com, and FFB Co-op is not installed";
+    const std::string not_installed = "Could not reach ffbcoop.com, and FFB Co-op is not installed";
     for (const std::string& gone : {kLoader, kDll}) {
         std::printf("server unreachable, a required file (%s) gone: not installed\n", gone.c_str());
         TempFolder t;
@@ -378,7 +378,7 @@ void test_invalid_games_json() {
     CHECK(ffb::run_app(input(t), io) == 0);
     CHECK(io.errs.size() == 1);
     if (io.errs.size() == 1) {
-        const std::string pre = "coopmods.com sent a file this version cannot read (";
+        const std::string pre = "ffbcoop.com sent a file this version cannot read (";
         const std::string post = ") -- starting the installed version.";
         CHECK(io.errs[0].rfind(pre, 0) == 0);
         CHECK(io.errs[0].size() > pre.size() + post.size() &&
@@ -391,7 +391,7 @@ void test_invalid_games_json() {
     FakeIo io2;
     io2.net_.pages[ffb::kGamesJsonUrl] = {200, "not json"};
     CHECK(ffb::run_app(input(empty), io2) == 1);
-    CHECK(io2.errs.size() == 2 && io2.errs[0].rfind("coopmods.com sent a file this version cannot read (", 0) == 0);
+    CHECK(io2.errs.size() == 2 && io2.errs[0].rfind("ffbcoop.com sent a file this version cannot read (", 0) == 0);
     CHECK(io2.errs.size() == 2 && io2.errs[0].find(", and FFB Co-op is not installed in " + empty.str()) != std::string::npos);
     CHECK(io2.keys == 1);
 }
@@ -404,12 +404,12 @@ void test_manifest_unreachable_installed() {
     FakeIo io;
     io.net_.pages[ffb::kGamesJsonUrl] = {200, games_json()};
     CHECK(ffb::run_app(input(t), io) == 0);
-    CHECK(io.errs.size() == 1 && io.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
+    CHECK(io.errs.size() == 1 && io.errs[0] == "Could not reach ffbcoop.com -- starting the installed version.");
     CHECK(io.starts.size() == 1);
 }
 
 void test_invalid_manifest() {
-    const std::string pre  = "coopmods.com sent a file this version cannot read (";
+    const std::string pre  = "ffbcoop.com sent a file this version cannot read (";
     const std::string post = ") -- starting the installed version.";
     // Breaks the manifest rules: "files" must hold at least one entry.
     const std::string bad = "{\"version\":\"76.0.0\",\"wire\":34,\"files\":[]}";
@@ -585,7 +585,7 @@ std::map<std::string, std::string> snapshot(const fs::path& dir) {
 
 const std::string kGamesSigUrl    = std::string(ffb::kGamesJsonUrl) + ".sig";
 const std::string kManifestSigUrl = kManifestUrl + ".sig";
-const std::string kUnsignedPre    = "coopmods.com sent a file without a valid signature (";
+const std::string kUnsignedPre    = "ffbcoop.com sent a file without a valid signature (";
 const std::string kInstalledPost  = ") -- starting the installed version.";
 
 // One way to get a signature wrong: what the server sends as the .sig, and the
@@ -658,7 +658,7 @@ void test_games_json_unsigned() {
     io2.net_.pages[ffb::kGamesJsonUrl] = {200, served};
     io2.net_.pages[kGamesSigUrl]       = {0, ""};
     CHECK(ffb::run_app(input(t2), io2) == 0);
-    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
+    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach ffbcoop.com -- starting the installed version.");
     CHECK(io2.self_.downloads == 0);
 }
 
@@ -746,11 +746,11 @@ void test_manifest_unsigned() {
 // channel", not read from src/channel.cpp; test_channel checks the table
 // against the same strings.
 
-const std::string kDevGamesUrl    = "https://coopmods.com/dev/games.json";
-const std::string kDevManifestUrl = "https://coopmods.com/dev/mewgenics/manifest.json";
-const std::string kDevBase        = "https://coopmods.com/dev/mewgenics/";
-const std::string kDevSelfUrl     = "https://coopmods.com/dev/launcher/FFB%20Co-op%20-%20dev.exe";
-const std::string kDevPrefix      = "https://coopmods.com/dev/";
+const std::string kDevGamesUrl    = "https://ffbcoop.com/dev/games.json";
+const std::string kDevManifestUrl = "https://ffbcoop.com/dev/mewgenics/manifest.json";
+const std::string kDevBase        = "https://ffbcoop.com/dev/mewgenics/";
+const std::string kDevSelfUrl     = "https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe";
+const std::string kDevPrefix      = "https://ffbcoop.com/dev/";
 
 std::string dev_games_json(const std::string& version = "1.0.1", const std::string& sha = kSha0,
                            std::uint64_t size = 1) {
@@ -862,7 +862,7 @@ void test_dev_offline() {
     CHECK(ffb::run_app(dev_input(t), io) == 1);
     CHECK(io.errs.size() == 2);
     if (io.errs.size() == 2)
-        CHECK(io.errs[0] == "Could not reach coopmods.com, and FFB Co-op is not installed in " + t.str() +
+        CHECK(io.errs[0] == "Could not reach ffbcoop.com, and FFB Co-op is not installed in " + t.str() +
                                 " yet. Connect to the internet and start it again.");
     CHECK(io.starts.empty());
     CHECK(snapshot(t.pkg()) == public_before);
@@ -871,7 +871,7 @@ void test_dev_offline() {
     install_dev(t);
     FakeIo io2;
     CHECK(ffb::run_app(dev_input(t), io2) == 0);
-    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
+    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach ffbcoop.com -- starting the installed version.");
     CHECK(io2.starts.size() == 1 && io2.starts[0].exe == (t.dev() / kLoader).u8string());
     CHECK(io2.self_.downloads == 0);
     CHECK(snapshot(t.pkg()) == public_before);
@@ -887,7 +887,7 @@ void test_dev_login_refused() {
     io.net_.pages[kDevGamesUrl] = {401, ""};
     CHECK(ffb::run_app(dev_input(t), io) == 0);
     CHECK(io.errs.size() == 1 &&
-          io.errs[0] == "coopmods.com refused the dev password (HTTP 401) -- starting the installed version.");
+          io.errs[0] == "ffbcoop.com refused the dev password (HTTP 401) -- starting the installed version.");
     CHECK(io.outs.size() == 2);   // the version line and "Starting ...": nothing asks for anything
     CHECK(io.keys == 0);
     CHECK(io.self_.downloads == 0);
@@ -902,7 +902,7 @@ void test_dev_login_refused() {
     CHECK(ffb::run_app(dev_input(t1), io1) == 1);
     CHECK(io1.errs.size() == 2);
     if (io1.errs.size() == 2)
-        CHECK(io1.errs[0] == "coopmods.com refused the dev password (HTTP 401), and FFB Co-op is not installed in " +
+        CHECK(io1.errs[0] == "ffbcoop.com refused the dev password (HTTP 401), and FFB Co-op is not installed in " +
                                  t1.str() + " yet. Connect to the internet and start it again.");
     CHECK(io1.starts.empty());
 
@@ -913,7 +913,7 @@ void test_dev_login_refused() {
     FakeIo io2;
     io2.net_.pages[ffb::kGamesJsonUrl] = {401, ""};
     CHECK(ffb::run_app(input(t2), io2) == 0);
-    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach coopmods.com -- starting the installed version.");
+    CHECK(io2.errs.size() == 1 && io2.errs[0] == "Could not reach ffbcoop.com -- starting the installed version.");
 }
 
 void test_dev_self_update() {

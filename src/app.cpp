@@ -1,6 +1,7 @@
 // app.cpp -- see app.h. The order is docs/SPEC.md "The flow":
 //
-//   1. games.json from coopmods.com, and games.json.sig beside it (#21).
+//   1. games.json from ffbcoop.com (coopmods.com when that name does not
+//      answer, #35), and games.json.sig beside it (#21).
 //      Unreachable (a 404 included), unsigned, badly signed or invalid: the
 //      offline start, from the games.json kept in FFB Co-op\. A file that is not
 //      signed by a trusted key is never parsed, so it can never self-update.
@@ -163,15 +164,15 @@ int offline_start(const AppInput& in, AppIo& io, const std::string& prefix) {
     return offline_start_game(in, io, prefix, found.matches.front());
 }
 
-const char* const kUnreachable = "Could not reach coopmods.com";
-const char* const kLoginRefused = "coopmods.com refused the dev password (HTTP 401)";
+const char* const kUnreachable = "Could not reach ffbcoop.com";
+const char* const kLoginRefused = "ffbcoop.com refused the dev password (HTTP 401)";
 
 std::string unreadable(const std::string& reason) {
-    return "coopmods.com sent a file this version cannot read (" + reason + ")";
+    return "ffbcoop.com sent a file this version cannot read (" + reason + ")";
 }
 
 std::string unsigned_file(const std::string& reason) {
-    return "coopmods.com sent a file without a valid signature (" + reason + ")";
+    return "ffbcoop.com sent a file without a valid signature (" + reason + ")";
 }
 
 }  // namespace
