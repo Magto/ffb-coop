@@ -516,10 +516,20 @@ def fetch_live_dev_games():
         return None
 
 
+def both_names(url):
+    """-> `url` under ffbcoop.com and under coopmods.com, in that order: the server answers to both (#35)."""
+    for a, b in ((URL + "/", OLD_URL + "/"), (OLD_URL + "/", URL + "/")):
+        if url.startswith(a):
+            rest = url[len(a):]
+            return [URL + "/" + rest, OLD_URL + "/" + rest]
+    return [url]
+
+
 def verify_dev_live(urls, games_text):
-    """After a dev publish: every published URL still answers 401 without a login (nothing went public), and,
-    with FFB_DEV_PASSWORD set, games.json answers the published bytes with the dev credential."""
-    for url in urls:
+    """After a dev publish: every published URL still answers 401 without a login on both names of the server
+    (nothing went public), and, with FFB_DEV_PASSWORD set, games.json answers the published bytes with the dev
+    credential on both names."""
+    for url in [u for url in urls for u in both_names(url)]:
         code, _ = http_status(url)
         if code != 401:
             raise Refused(f"{url} answered HTTP {code} without a login -- the dev gate is not covering it")
@@ -653,7 +663,7 @@ def publish_dev(a):
     check_dev_gate()
     dirs = " ".join(f"'{DEV_REMOTE}/{d}'" for d in ["launcher"] + [w[0] for w in written])
     run(["ssh", "-o", "ConnectTimeout=15", HOST, f"mkdir -p {dirs}"])
-    urls = [DEV_GAMES_URL, DEV_SIG_URL, DEV_OLD_GAMES_URL]
+    urls = [DEV_GAMES_URL, DEV_SIG_URL]
     if exe is not None:
         dev_put(a.exe, f"launcher/{DEV_EXE_NAME}", doc["launcher"]["sha256"])
         urls.append(DEV_LAUNCHER_URL)

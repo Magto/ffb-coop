@@ -730,6 +730,37 @@ class Dev(unittest.TestCase):
         self.assertIn(DEV_MANIFEST_URL, s.https)
         self.assertIn(DEV_LAUNCHER_URL, s.https)
         self.assertIn(DEV_OLD_GAMES_URL, s.https)
+        # the no-login check covers the name 2.0.2+ reads first too, not only the one written in games.json
+        self.assertIn("https://ffbcoop.com/dev/launcher/FFB%20Co-op%20-%20dev.exe", s.https)
+        self.assertIn("https://ffbcoop.com/dev/mewgenics/manifest.json", s.https)
+
+    def with_password_server(self, stale=None):
+        """http_status as the live gate with the dev password set: 401 without a login, and with it the server's
+        games.json -- except under the name `stale`, which answers older bytes."""
+        os.environ[publish.DEV_PASSWORD_ENV] = "pw"
+        logged = []
+        def answer(url, login=None, timeout=20):
+            self.server.https.append(url)
+            if not login:
+                return self.server.http_status(url)
+            logged.append(url)
+            if url in (DEV_GAMES_URL, DEV_OLD_GAMES_URL):
+                if stale and url.startswith(stale):
+                    return 200, b'{"old": true}'
+                return 200, self.server.files[DEV_REMOTE + "/games.json"]
+            raise AssertionError(f"unexpected login request {url}")
+        return answer, logged
+
+    def test_read_back_with_the_password_on_both_names(self):
+        answer, logged = self.with_password_server()
+        with mock.patch.object(publish, "http_status", side_effect=answer):
+            self.assertEqual(self.main(), 0)
+        self.assertEqual(logged, [DEV_GAMES_URL, DEV_OLD_GAMES_URL])
+
+    def test_read_back_stale_on_the_name_2_0_1_reads_refused(self):
+        answer, _ = self.with_password_server(stale="https://coopmods.com/")
+        with mock.patch.object(publish, "http_status", side_effect=answer):
+            self.assertEqual(self.main(), 1)
 
     def test_every_dev_url_gets_the_password_from_a_2_0_1_exe(self):
         # #35: 2.0.1 got HTTP 401 on a launcher URL on ffbcoop.com and could not self-update.
