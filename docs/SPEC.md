@@ -472,9 +472,10 @@ that". The one server answers to both names with the same files, the same `/dev/
   is. games.json and manifests may name either; both are accepted.
 - **coopmods.com only when ffbcoop.com does not answer at all**: no connection, no name, no TLS, before the first
   byte. Any HTTP status (a 404, a 401) is the server's answer and is not retried, and a transfer that breaks after
-  its first byte is not either, so no file is ever delivered twice.
+  its first byte is not either, so no file is ever delivered twice. A name that did not answer is not asked again for
+  the rest of that start, so a dropped connection costs its timeout once, not once per file.
 - **The console says which host answered**: `[*] reached ffbcoop.com` each time the host that serves a file changes,
-  and `[!] ffbcoop.com did not answer -- trying coopmods.com` for each fallback. The self-update says
+  and `[!] ffbcoop.com did not answer -- trying coopmods.com` the first time a name does not answer. The self-update says
   `self-update: downloaded from <host>`.
 - **Error screens name ffbcoop.com.**
 - `tools/publish.py` writes and checks ffbcoop.com URLs, and site/games.json.in names the Mewgenics manifest on

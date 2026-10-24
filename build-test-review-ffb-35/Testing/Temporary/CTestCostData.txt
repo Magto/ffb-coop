@@ -1,0 +1,20 @@
+test_version 1 0.011244
+test_selfupdate 1 0.010636
+ffb_coop_exits_0 1 0.0188408
+ffb_coop_version_line 1 0.0106032
+ffb_coop_offline_not_installed 1 0.0110749
+ffb_coop_offline_tries_coopmods 1 0.0091163
+test_games 1 0.012297
+test_finder 1 0.0258854
+test_sha256 1 0.0127049
+test_package 1 0.21428
+test_signature 1 0.107416
+test_app 1 0.812521
+test_cmdline 1 0.010903
+test_child_env 1 0.0101094
+test_channel 1 0.0089573
+test_mirror 1 0.0096717
+test_version_dev 1 0.009556
+test_dev_password 1 0.313479
+test_publish 1 2.78132
+---

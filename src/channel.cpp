@@ -78,6 +78,17 @@ std::vector<std::string> mirror_urls(const std::string& url) {
     return {url};
 }
 
+std::string first_answer(const std::string& url,
+                         const std::function<bool(const std::string& url)>& attempt,
+                         const std::function<void(const std::string& host, const std::string& next)>& on_skip) {
+    const std::vector<std::string> urls = mirror_urls(url);
+    for (std::size_t i = 0; i < urls.size(); ++i) {
+        if (attempt(urls[i])) return urls[i];
+        if (i + 1 < urls.size() && on_skip) on_skip(url_host(urls[i]), url_host(urls[i + 1]));
+    }
+    return std::string();
+}
+
 std::string base64(const std::string& bytes) {
     static const char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;

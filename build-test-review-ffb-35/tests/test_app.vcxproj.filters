@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\tests\test_app.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\app.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\selfupdate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\games.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\finder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\plain_name.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\package.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\net.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\channel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\src\signature.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\third_party\tweetnacl.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\marti\claude-project\mewgenics-coop\.claude\worktrees\ffb-35-ffbcoop-first\tests\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{64F16C24-AF0E-32AD-A7C9-8841BD005966}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

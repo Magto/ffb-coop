@@ -145,24 +145,29 @@ int get_body(Net& net, const std::string& url, std::string* body) {
 // --- ffbcoop.com first (#35) ------------------------------------------------
 
 int MirrorNet::get(const std::string& url, const Sink& sink) {
-    const std::vector<std::string> urls = mirror_urls(url);
+    const std::string last = mirror_urls(url).back();
     int status = 0;
-    for (std::size_t i = 0; i < urls.size(); ++i) {
-        bool got_bytes = false;
-        status = inner_.get(urls[i], [&](const char* p, std::size_t n) {
-            got_bytes = true;
-            return sink(p, n);
+    const std::string served = first_answer(
+        url,
+        [&](const std::string& u) {
+            // A name that did not answer once this start is not asked again,
+            // unless it is the last one left: a dropped connection costs its
+            // timeout once, not once per file.
+            if (u != last && silent_.count(url_host(u))) return false;
+            bool got_bytes = false;
+            status = inner_.get(u, [&](const char* p, std::size_t n) {
+                got_bytes = true;
+                return sink(p, n);
+            });
+            return status != 0 || got_bytes;
+        },
+        [&](const std::string& host, const std::string& next) {
+            if (silent_.insert(host).second && log_) log_("[!] " + host + " did not answer -- trying " + next);
         });
-        if (status == 0 && !got_bytes && i + 1 < urls.size()) {
-            if (log_) log_("[!] " + url_host(urls[i]) + " did not answer -- trying " + url_host(urls[i + 1]));
-            continue;
-        }
-        if (status != 0) {
-            const std::string host = url_host(urls[i]);
-            if (host != last_host_ && log_) log_("[*] reached " + (host.empty() ? urls[i] : host));
-            last_host_ = host;
-        }
-        break;
+    if (status != 0) {
+        const std::string host = url_host(served);
+        if (host != last_host_ && log_) log_("[*] reached " + (host.empty() ? served : host));
+        last_host_ = host;
     }
     return status;
 }

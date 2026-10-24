@@ -1,7 +1,8 @@
 // test_mirror.cpp -- ffbcoop.com first, coopmods.com second (#35, docs/SPEC.md
 // "Server"): the order mirror_urls() gives each URL, which hosts have a twin,
-// when MirrorNet moves on to the next name and when it must not, the lines it
-// logs, and that the dev login goes to both names of the dev prefix.
+// when MirrorNet and first_answer() (the self-update's rule) move on to the next
+// name and when they must not, that a silent name is skipped for the rest of the
+// start, the lines logged, and that the dev login goes to both names of /dev/.
 //
 // The inner Net is a fake that answers per URL; MirrorNet itself is the real
 // one. The expected URLs and lines are written out from the issue's Done looks
@@ -157,6 +158,70 @@ void test_no_fallback() {
     CHECK(e.log == kNone);
 }
 
+void test_first_answer() {
+    std::printf("first_answer, the rule the self-update runs: ffbcoop.com first, coopmods.com only without an answer\n");
+    std::vector<std::string> tried, skipped;
+    auto run = [&](const std::string& url, std::vector<bool> answers) {
+        tried.clear();
+        skipped.clear();
+        return first_answer(
+            url,
+            [&](const std::string& u) {
+                tried.push_back(u);
+                return answers[tried.size() - 1];
+            },
+            [&](const std::string& host, const std::string& next) { skipped.push_back(host + " -> " + next); });
+    };
+    const std::string exe_ffb = "https://ffbcoop.com/launcher/FFB%20Co-op.exe";
+    const std::string exe_old = "https://coopmods.com/launcher/FFB%20Co-op.exe";
+
+    // ffbcoop.com answers (any status, a failed download included): nothing more is tried
+    CHECK(run(exe_old, {true, true}) == exe_ffb);
+    CHECK(tried == v({exe_ffb.c_str()}));
+    CHECK(skipped == kNone);
+
+    // ffbcoop.com does not answer: coopmods.com, and one skip naming both
+    CHECK(run(exe_old, {false, true}) == exe_old);
+    CHECK(tried == v({exe_ffb.c_str(), exe_old.c_str()}));
+    CHECK(skipped == v({"ffbcoop.com -> coopmods.com"}));
+
+    // neither answers: "", both tried, one skip (there is no third name to try)
+    CHECK(run(exe_ffb, {false, false}) == "");
+    CHECK(tried.size() == 2 && skipped.size() == 1);
+
+    // no twin: asked once, as given
+    CHECK(run("https://example.test/x.exe", {false}) == "");
+    CHECK(tried == v({"https://example.test/x.exe"}) && skipped == kNone);
+}
+
+void test_silent_name_skipped() {
+    std::printf("a name that did not answer is not asked again this start: one wait, one line\n");
+    Mirror m;
+    m.inner.pages["https://ffbcoop.com/games.json"]      = {0, ""};
+    m.inner.pages["https://coopmods.com/games.json"]     = {200, "{}"};
+    m.inner.pages["https://coopmods.com/games.json.sig"] = {200, "sig"};
+    std::string body;
+    CHECK(m.get("https://ffbcoop.com/games.json", &body) == 200);
+    CHECK(m.get("https://ffbcoop.com/games.json.sig", &body) == 200 && body == "sig");
+    CHECK(m.inner.asked == v({"https://ffbcoop.com/games.json", "https://coopmods.com/games.json",
+                              "https://coopmods.com/games.json.sig"}));
+    CHECK(m.log == v({"[!] ffbcoop.com did not answer -- trying coopmods.com", "[*] reached coopmods.com"}));
+
+    std::printf("another host is its own name: mewgenics.ffbcoop.com is still asked first\n");
+    m.inner.pages["https://mewgenics.ffbcoop.com/update/manifest.json"] = {200, "m"};
+    CHECK(m.get("https://mewgenics.coopmods.com/update/manifest.json", &body) == 200 && body == "m");
+    CHECK(m.inner.asked.back() == "https://mewgenics.ffbcoop.com/update/manifest.json");
+
+    std::printf("a silent name that is the last one left is still asked\n");
+    Mirror n;
+    n.inner.pages["https://ffbcoop.com/a"]  = {0, ""};
+    n.inner.pages["https://coopmods.com/a"] = {0, ""};
+    n.inner.pages["https://coopmods.com/b"] = {200, "b"};
+    CHECK(n.get("https://coopmods.com/a", &body) == 0);
+    CHECK(n.get("https://coopmods.com/b", &body) == 200 && body == "b");
+    CHECK(n.inner.asked == v({"https://ffbcoop.com/a", "https://coopmods.com/a", "https://coopmods.com/b"}));
+}
+
 void test_dev_login_both_names() {
     std::printf("the dev login goes to the dev prefix on both names, so the fallback carries it\n");
     const Channel& dev = dev_channel();
@@ -181,6 +246,8 @@ int main() {
     test_ffbcoop_answers();
     test_fallback();
     test_no_fallback();
+    test_first_answer();
+    test_silent_name_skipped();
     test_dev_login_both_names();
     return ffb_test_result();
 }

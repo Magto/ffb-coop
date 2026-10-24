@@ -109,14 +109,19 @@ public:
     // answer at all (#35, src/channel.h): an HTTP status is the server's answer.
     bool download(const std::string& url, const std::wstring& dest,
                   std::string* sha256_hex, std::uint64_t* got) override {
-        const std::vector<std::string> urls = mirror_urls(url);
-        for (size_t i = 0;; ++i) {
-            bool answered = false;
-            const bool ok = download_from(urls[i], dest, sha256_hex, got, &answered);
-            if (ok) note("self-update: downloaded from " + url_host(urls[i]));
-            if (ok || answered || i + 1 == urls.size()) return ok;
-            warn("self-update: " + url_host(urls[i]) + " did not answer -- trying " + url_host(urls[i + 1]));
-        }
+        bool ok = false;
+        const std::string served = first_answer(
+            url,
+            [&](const std::string& u) {
+                bool answered = false;
+                ok = download_from(u, dest, sha256_hex, got, &answered);
+                return answered;
+            },
+            [&](const std::string& host, const std::string& next) {
+                warn("self-update: " + host + " did not answer -- trying " + next);
+            });
+        if (ok) note("self-update: downloaded from " + url_host(served));
+        return ok;
     }
 
 private:

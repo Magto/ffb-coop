@@ -14,6 +14,7 @@
 // which one this_channel() answers.
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -52,9 +53,10 @@ const Channel& this_channel();
 // One server answers to both names with the same files: ffbcoop.com and
 // coopmods.com, www. and mewgenics. under each. Some players' ISPs block the
 // name coopmods.com, so every fetch tries the ffbcoop.com form first and the
-// coopmods.com form only when ffbcoop.com does not answer at all (MirrorNet,
-// src/net.h; the self-update in src/selfupdate_win.cpp). An HTTP status -- a 404
-// or a 401 included -- is the server's answer and is never retried.
+// coopmods.com form only when ffbcoop.com does not answer at all. One rule,
+// first_answer() below, used by both downloaders: MirrorNet (src/net.h) and the
+// self-update (src/selfupdate_win.cpp). An HTTP status -- a 404 or a 401
+// included -- is the server's answer and is never retried.
 
 // The host of an https URL, lowercased; "" when it is not https or carries a
 // port or a user name.
@@ -64,6 +66,15 @@ std::string url_host(const std::string& url);
 // coopmods.com form, for a URL on either name (coopmods.com, www.coopmods.com,
 // mewgenics.coopmods.com and their ffbcoop.com twins); {url} for anything else.
 std::vector<std::string> mirror_urls(const std::string& url);
+
+// Tries mirror_urls(url) in order until one answers. `attempt` fetches one URL
+// and returns true when the server sent a response of any kind (any status, or
+// the first byte); then nothing more is tried. `on_skip(host, next_host)` is
+// called for each name that did not answer, before the next is tried.
+// -> the URL that answered, or "" when none did.
+std::string first_answer(const std::string& url,
+                         const std::function<bool(const std::string& url)>& attempt,
+                         const std::function<void(const std::string& host, const std::string& next)>& on_skip);
 
 // --- the dev login ----------------------------------------------------------
 //
