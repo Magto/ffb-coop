@@ -5,8 +5,10 @@
 #include "ffb_version.h"
 
 // Explorer takes the first icon group in the resource table as the exe's icon,
-// so it keeps the lowest id. The navy bunnycorn, copied from mewgenics-coop
-// res/Mewcoop.ico at commit 0246ab7.
+// so it keeps the lowest id. The FFB brand icon (#39), byte-for-byte a copy of
+// Fluffy-Fluffy-and-Bouncy/mewgenics-coop res/brand/ffb.ico (its #2510, sha256
+// f74a289c053191c53c7f7ed3cbe087aec7228ba895e07bc1be214e7cf04a1ae8): 16..256 px,
+// every frame PNG-compressed. Rebuild it there, from its README, and copy it here.
 1 ICON "ffb_coop.ico"
 
 VS_VERSION_INFO VERSIONINFO
