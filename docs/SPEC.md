@@ -496,7 +496,8 @@ The console window's title is `FFB Co-op vN`; the first printed line stays `FFB 
 
 - Existing players' standalone loader keeps working; there is no forced migration.
 - The file is `FFB Co-op.exe`. Its version resource has FileDescription and ProductName
-  "FFB Co-op". Its icon is the navy bunnycorn, mewgenics-coop `res/Mewcoop.ico` (commit 0246ab7).
+  "FFB Co-op". Its icon is the FFB brand icon by Jals, the transparent bunny, a copy of mewgenics-coop
+  `res/brand/ffb.ico` (its #2523; the navy bunnycorn until #39, the blue-backed FFB icon until 2.0.3).
 - Windows only, MSVC via CMake, like mewgenics-coop; it builds on Tubal-Cain.
 
 ## Testing
