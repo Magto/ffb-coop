@@ -75,6 +75,10 @@ endif()
 # res/ffb_coop.rc includes ffb_version.h, so the version resource and the
 # printed version line come from the same numbers.
 set_property(SOURCE res/ffb_coop.rc APPEND PROPERTY INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/src)
+# A changed icon relinks both exes. The Visual Studio generator's build already notices it; a Ninja build
+# would not (rc.exe reports the files an .rc #includes, not the one its ICON line reads), as mewgenics-coop
+# found for its loader (its #2523). Listing it here holds for every generator.
+set_property(SOURCE res/ffb_coop.rc APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_SOURCE_DIR}/res/ffb_coop.ico)
 
 if(FFB_BUILD_TESTS)
     enable_testing()
