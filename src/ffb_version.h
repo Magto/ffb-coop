@@ -5,17 +5,17 @@
 // part above RC_INVOKED to plain #defines: rc.exe only understands those.
 #pragma once
 
-// Release N is N.0.0 (docs/SPEC.md, "Versions"): v1 is 1.0.0, v2 is 2.0.0.
+// Release N is N.0.0 (docs/SPEC.md, "Versions"): v1 is 1.0.0, v2 is 2.0.0, v3 is 3.0.0.
 // MINOR and the public PATCH stay 0; tests/test_version.cpp checks it.
-#define FFB_VERSION_MAJOR 2
+#define FFB_VERSION_MAJOR 3
 #define FFB_VERSION_MINOR 0
 
 // The dev channel (#26, docs/SPEC.md "Dev channel"): FFB Co-op - dev.exe is
 // MAJOR.0.D, dev build D of the release in the works. Bump FFB_DEV_BUILD and
 // FFB_DEV_VERSION_STR together before every `tools/publish.py --dev`: a dev exe
 // only updates to a higher version, exactly like the public one.
-#define FFB_DEV_BUILD       3
-#define FFB_DEV_VERSION_STR "2.0.3"
+#define FFB_DEV_BUILD       1
+#define FFB_DEV_VERSION_STR "3.0.1"
 
 #ifdef FFB_DEV_CHANNEL
 #define FFB_VERSION_PATCH FFB_DEV_BUILD
@@ -24,7 +24,7 @@
 #define FFB_EXE_NAME      "FFB Co-op - dev.exe"
 #else
 #define FFB_VERSION_PATCH 0
-#define FFB_VERSION_STR   "2.0.0"
+#define FFB_VERSION_STR   "3.0.0"
 #define FFB_PRODUCT_NAME  "FFB Co-op"
 #define FFB_EXE_NAME      "FFB Co-op.exe"
 #endif
