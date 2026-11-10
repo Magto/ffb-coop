@@ -5,6 +5,7 @@ closes.
 
 ## Unreleased
 
+- FFB Co-op.exe is v3 (3.0.0): the public launcher gets the new transparent FFB icon and downloads from ffbcoop.com first; v2 updates itself to it. (#39)
 - FFB Co-op - dev.exe 2.0.3 has the new transparent FFB icon, by Jals: the rainbow-horned bunny over "FFB" with no blue square behind it, sharp at every size. FFB Co-op.exe stays 2.0.0 and gets it with its next release.
 - FFB Co-op.exe and FFB Co-op - dev.exe have the new FFB icon: the rainbow-horned bunny over "FFB", in Explorer, on the taskbar and in shortcuts. (#39)
 - FFB Co-op - dev.exe 2.0.1 updates itself again: the dev channel names its downloads where 2.0.1 sends the dev password, so it no longer stops at "the server answered HTTP 401" and "Could not reach coopmods.com". (#35)
