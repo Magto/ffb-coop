@@ -8,6 +8,14 @@
       "steam_appid": 686060,
       "manifest": "https://coopmods.com/dev/mewgenics/manifest.json",
       "launcher": "mewcoop_loader.exe"
+    },
+    {
+      "id": "theyarebillions",
+      "name": "They Are Billions",
+      "exe": "TheyAreBillions.exe",
+      "steam_appid": 644930,
+      "manifest": "https://tab.ffbcoop.com/update/dev/manifest.json",
+      "launcher": "FfbTab.Launcher.exe"
     }
   ]
 }

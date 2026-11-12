@@ -22,6 +22,8 @@ OTHER_SEED = bytes.fromhex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8c
 OTHER_PUB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
 # The key generated for coopmods on 2026-10-01, as docs/SPEC.md "Signatures" names it.
 COOPMODS_PUB = "43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59"
+TAB_PUB = "1283a33131f8652a3d75b124f5658d5cb7cc0c628e03243951dc9af8fb81e839"   # They Are Billions co-op (Simon)
+TAB_DEV_MANIFEST_URL = "https://tab.ffbcoop.com/update/dev/manifest.json"
 
 REAL_TRUSTED_KEYS = signing.trusted_keys
 _module = {}
@@ -266,8 +268,12 @@ class KeyNames(unittest.TestCase):
         return path
 
     def test_real_rows(self):
-        # The list stays one row: Martin's key, every name. A game's key is added after #23 ships.
-        self.assertEqual(signing._rows(REPO), [(COOPMODS_PUB, "*")])
+        # Martin's key, every name; the They Are Billions key, its own manifest only (SPEC "Where the keys live").
+        self.assertEqual(signing._rows(REPO), [(COOPMODS_PUB, "*"), (TAB_PUB, "theyarebillions manifest")])
+        rules = signing._rows(REPO)
+        self.assertTrue(signing.may_sign(TAB_PUB, "theyarebillions manifest", rules))
+        for name in ("games.json", "dev games.json", "mewgenics manifest", None):
+            self.assertFalse(signing.may_sign(TAB_PUB, name, rules), name)
 
     def test_may_sign(self):
         for name in ("games.json", "dev games.json", "mewgenics manifest", "tab manifest", None):
@@ -702,7 +708,7 @@ class Signing(unittest.TestCase):
         self.assertFalse(signing.verify_bytes(data, publish.PLACEHOLDER, [TEST_PUB]))
 
     def test_real_trusted_keys_file(self):
-        self.assertEqual(REAL_TRUSTED_KEYS(REPO), [COOPMODS_PUB])
+        self.assertEqual(REAL_TRUSTED_KEYS(REPO), [COOPMODS_PUB, TAB_PUB])
 
     def test_dry_run_signs_and_the_sig_verifies(self):
         self.assertEqual(publish.main(["--exe", self.exe, "--out", self.out, "--dry-run"]), 0)
@@ -855,8 +861,18 @@ class Dev(unittest.TestCase):
         for p in self.patches: p.stop()
         self.tmp.cleanup()
 
-    def main(self, *extra, exe=True, package=True):
+    def main(self, *extra, exe=True, package=True, real_games=False):
         argv = ["--dev", "--out", self.out]
+        if not real_games and "--games-in" not in extra:
+            # These tests are about Mewgenics' dev package and the dev launcher: the dev games list without the games
+            # whose manifests live elsewhere (They Are Billions: tab.ffbcoop.com, read without a login; see
+            # test_a_listed_manifest_off_the_dev_site_is_read_without_a_login).
+            doc = load(publish.DEV_GAMES_IN)
+            doc["games"] = [g for g in doc["games"] if g["id"] == "mewgenics"]
+            games_in = os.path.join(self.tmp.name, "dev-games.json.in")
+            with open(games_in, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+            argv += ["--games-in", games_in]
         if exe:
             argv += ["--exe", self.exe]
         if package:
@@ -879,7 +895,9 @@ class Dev(unittest.TestCase):
     def test_checked_in_dev_games_in_is_valid_and_reads_the_dev_manifest(self):
         launcher = {"version": "1.0.1", "url": DEV_LAUNCHER_URL, "sha256": "0" * 64, "size": 1}
         doc = publish.build_games_json(load(publish.DEV_GAMES_IN), launcher=launcher)
-        self.assertEqual([g["manifest"] for g in doc["games"]], [DEV_MANIFEST_URL])
+        self.assertEqual([g["manifest"] for g in doc["games"]], [DEV_MANIFEST_URL, TAB_DEV_MANIFEST_URL])
+        tab = [g for g in doc["games"] if g["id"] == "theyarebillions"][0]
+        self.assertEqual(tab["steam_appid"], 644930)   # Martin on #44: "b — 644930 now"
 
     def test_full_publish_writes_only_under_dev(self):
         self.assertEqual(self.main(), 0)
@@ -1061,6 +1079,27 @@ class Dev(unittest.TestCase):
             raise AssertionError(f"unexpected login request {url}")
         return mock.patch.object(publish, "http_status", side_effect=answer), logged
 
+    def test_a_listed_manifest_off_the_dev_site_is_read_without_a_login(self):
+        # They Are Billions' dev manifest is on tab.ffbcoop.com, not under /dev/: it is read without the dev password,
+        # and a dev launcher does not go out over one whose .sig no trusted key made.
+        patch, _ = self.serve_dev_manifest({"signed_as": "mewgenics manifest", "version": "1", "files": []})
+        dev_answer = patch.kwargs["side_effect"]
+        tab = {TAB_DEV_MANIFEST_URL: json.dumps({"signed_as": "theyarebillions manifest", "version": "1", "files": []}).encode(),
+               TAB_DEV_MANIFEST_URL + ".sig": b"0" * 128 + b"\n"}   # 128 hex digits, but no trusted key's signature
+        read = []
+
+        def answer(url, login=None, timeout=20):
+            if url in tab:
+                read.append((url, login))
+                return 200, tab[url]
+            return dev_answer(url, login, timeout)
+        err = io.StringIO()
+        with mock.patch.object(publish, "http_status", side_effect=answer), contextlib.redirect_stderr(err):
+            self.assertEqual(self.main(package=False, real_games=True), 1)
+        self.assertEqual(read, [(TAB_DEV_MANIFEST_URL, None), (TAB_DEV_MANIFEST_URL + ".sig", None)])
+        self.assertIn("theyarebillions: " + TAB_DEV_MANIFEST_URL, err.getvalue())
+        self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+
     def test_live_dev_manifest_with_its_name_passes(self):
         patch, logged = self.serve_dev_manifest({"signed_as": "mewgenics manifest", "version": "1", "files": []})
         with patch:
@@ -1172,7 +1211,7 @@ class Dev(unittest.TestCase):
         self.assertEqual(publish.GAMES_URL, "https://ffbcoop.com/games.json")
         games_in = load(os.path.join(REPO, "site", "games.json.in"))
         self.assertEqual([g["manifest"] for g in games_in["games"]],
-                         ["https://mewgenics.ffbcoop.com/update/manifest.json"])
+                         ["https://mewgenics.ffbcoop.com/update/manifest.json"])   # They Are Billions: dev channel first
 
     def test_dev_flags_without_dev_refused(self):
         for extra in (["--no-exe"], ["--package", "mewgenics", self.pkg], ["--package-version", "1"],

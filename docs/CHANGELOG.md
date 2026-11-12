@@ -5,6 +5,7 @@ closes.
 
 ## Unreleased
 
+- FFB Co-op - dev.exe starts They Are Billions co-op: put it next to `TheyAreBillions.exe` and it downloads the mod into `FFB Co-op dev\` and starts it, and updates it on every start. The mod's manifest is signed with the They Are Billions co-op key, which may sign that game's manifest and nothing else; FFB Co-op.exe trusts the key too, and lists the game once it has been tested on the dev channel. (Refs #23)
 - FFB Co-op.exe refuses a signed games.json or game manifest meant for another address -- another game's manifest, or the dev channel's games.json -- a file signed by a key that may not sign it (a game's own key signs only its own game's manifest), and a games.json that names an older launcher than the one running (an old file served again). Each is one warning line, nothing is updated or downloaded, and the installed version starts. (#23)
 - FFB Co-op.exe is v3 (3.0.0): the public launcher gets the new transparent FFB icon and downloads from ffbcoop.com first; v2 updates itself to it. (#39)
 - FFB Co-op - dev.exe 2.0.3 has the new transparent FFB icon, by Jals: the rainbow-horned bunny over "FFB" with no blue square behind it, sharp at every size. FFB Co-op.exe stays 2.0.0 and gets it with its next release.

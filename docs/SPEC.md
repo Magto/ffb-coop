@@ -243,8 +243,10 @@ and are not checked again: they are on the player's own disk.
   `{"<64 hex digits>", "<name>"},`. The name is a `signed_as` the key may sign, or `"*"` for every name
   (#23, Martin's decision on #43, 2026-11-12: "a — Do it in this PR"). A file is accepted only when a
   listed key signed it **and** one of that key's rows allows its `signed_as`; the launcher checks this
-  after the name (`check_may_sign`). Today the list holds one row, Martin's key made 2026-10-01, for
-  every name: `43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59`, `"*"`.
+  after the name (`check_may_sign`). Today the list holds two rows: Martin's key made 2026-10-01, for
+  every name: `43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59`, `"*"`; and the
+  They Are Billions co-op key (Simon's) for its own manifest only:
+  `1283a33131f8652a3d75b124f5658d5cb7cc0c628e03243951dc9af8fb81e839`, `"theyarebillions manifest"`.
 - **A game's own key** may sign that game's manifest and nothing else: its row is
   `{"<key>", "<games[].id> manifest"}`, e.g. `"tab manifest"`, never `"*"`. So it can never sign
   games.json (which decides the launcher's self-update and every game's manifest address) or another
@@ -508,6 +510,7 @@ known yet, and FFB Co-op.exe assumes neither.
 | `https://ffbcoop.com/games.json.sig` | its signature ([Signatures](#signatures)) — served **without** the cookie |
 | `https://ffbcoop.com/launcher/FFB%20Co-op.exe` | the launcher's own update — served **without** the cookie |
 | `https://mewgenics.ffbcoop.com/update/manifest.json` and its sibling files | the Mewgenics package, already published by mewgenics-coop, already cookie-free; `manifest.json.sig` beside it from mewgenics-coop#553 |
+| `https://tab.ffbcoop.com/update/dev/manifest.json` and its sibling files | the They Are Billions dev package, listed in the dev games.json only for now (Martin, coop-board thread 21: "Dev channel first, release 4 after it's tested"); published and signed by the They Are Billions co-op repo with its own key, `manifest.json.sig` beside it; not behind the dev password. Its public package will be `https://tab.ffbcoop.com/update/manifest.json` |
 | `https://ffbcoop.com/dev/…` | the [dev channel](#dev-channel) (#26): its games.json and `.sig`, `launcher/FFB Co-op - dev.exe`, and `<game id>/manifest.json`, its `.sig` and its files -- behind the shared dev password |
 
 The Caddyfile is a single-file bind mount: **never `sed -i` it** (that replaces the inode and the
