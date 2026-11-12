@@ -24,6 +24,7 @@ const char* const kRfcSig2 =
 
 // The key generated for coopmods on 2026-10-01, as docs/SPEC.md "Signatures" names it.
 const char* const kCoopmodsKey = "43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59";
+const char* const kTabKey = "1283a33131f8652a3d75b124f5658d5cb7cc0c628e03243951dc9af8fb81e839";  // They Are Billions co-op (Simon)
 
 ffb::Signature sig_of(const std::string& hex) {
     ffb::Signature s{};
@@ -119,12 +120,20 @@ int main() {
         CHECK(ffb::signature_url("https://h/m.json?x=1#y") == "https://h/m.json.sig");
     }
 
-    std::puts("the exe trusts exactly the coopmods key docs/SPEC.md names");
+    std::puts("the exe trusts exactly the keys docs/SPEC.md names: coopmods for every name, They Are Billions for its manifest");
     {
         const auto& keys = ffb::trusted_keys();
-        CHECK(keys.size() == 1);
-        CHECK(keys.size() == 1 && to_hex(keys[0].key.data(), 32) == kCoopmodsKey);
-        CHECK(keys.size() == 1 && keys[0].may_sign == "*");   // Martin's key signs every name (#23)
+        CHECK(keys.size() == 2);
+        CHECK(keys.size() == 2 && to_hex(keys[0].key.data(), 32) == kCoopmodsKey);
+        CHECK(keys.size() == 2 && keys[0].may_sign == "*");   // Martin's key signs every name (#23)
+        CHECK(keys.size() == 2 && to_hex(keys[1].key.data(), 32) == kTabKey);
+        CHECK(keys.size() == 2 && keys[1].may_sign == "theyarebillions manifest");   // a game key: its manifest only
+        if (keys.size() == 2) {   // the They Are Billions key: its own manifest, and nothing else
+            CHECK(ffb::check_may_sign("x", "theyarebillions manifest", keys[1].key, keys).empty());
+            CHECK(!ffb::check_may_sign("x", "games.json", keys[1].key, keys).empty());
+            CHECK(!ffb::check_may_sign("x", "dev games.json", keys[1].key, keys).empty());
+            CHECK(!ffb::check_may_sign("x", "mewgenics manifest", keys[1].key, keys).empty());
+        }
         // tools/signing.py (Python `cryptography`) signed this fixed sentence with the
         // coopmods private key on 2026-10-01: the publish side and the launcher side
         // agree on the format and the key. Not JSON, so it can never pass as a file.

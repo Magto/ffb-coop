@@ -28,6 +28,7 @@ struct TrustedKeyRow {
 
 inline const TrustedKeyRow kTrustedKeys[] = {
     {"43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59", "*"},  // coopmods (Martin) 2026-10-01
+    {"1283a33131f8652a3d75b124f5658d5cb7cc0c628e03243951dc9af8fb81e839", "theyarebillions manifest"},  // They Are Billions co-op (Simon) 2026-10-31
 };
 
 }  // namespace ffb
