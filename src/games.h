@@ -28,6 +28,10 @@ struct GameEntry {
 };
 
 struct GamesJson {
+    // What the file says it is (#23, signature.h): "" when it has no "signed_as".
+    // Optional here, so a games.json kept by an older launcher still reads
+    // offline; the start flow requires it on a fetched file.
+    std::string signed_as;
     LauncherInfo launcher;
     std::vector<GameEntry> games;
 };

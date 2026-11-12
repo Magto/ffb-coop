@@ -149,5 +149,21 @@ int main() {
     four_cases("games.json", kGamesJson);
     four_cases("the manifest", kManifest);
 
+    std::puts("what a signed file says it is (#23): the names, as docs/SPEC.md \"Signatures\" writes them");
+    {
+        CHECK(ffb::games_json_signed_as("public") == "games.json");
+        CHECK(ffb::games_json_signed_as("dev") == "dev games.json");
+        CHECK(ffb::manifest_signed_as("mewgenics") == "mewgenics manifest");
+        CHECK(ffb::manifest_signed_as("tab") == "tab manifest");
+        CHECK(ffb::check_signed_as("games.json", "games.json", "games.json").empty());
+        CHECK(ffb::check_signed_as("the manifest", "mewgenics manifest", "tab manifest") ==
+              "the manifest is signed as \"mewgenics manifest\", not \"tab manifest\"");
+        CHECK(ffb::check_signed_as("games.json", "", "games.json") ==
+              "games.json does not say which file it is (no \"signed_as\")");
+        // Exact: no case folding, no trimming.
+        CHECK(!ffb::check_signed_as("games.json", "Games.json", "games.json").empty());
+        CHECK(!ffb::check_signed_as("games.json", "games.json ", "games.json").empty());
+    }
+
     return ffb_test_result();
 }

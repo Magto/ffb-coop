@@ -49,4 +49,29 @@ std::string check_signature(const std::string& what, const std::string& data,
 // 64 hex digits -> a key. False on anything else.
 bool parse_public_key(const std::string& hex, PublicKey* out);
 
+// --- what a signed file says it is (#23) --------------------------------------
+//
+// A signature covers bytes, not an address, so each signed file also names
+// itself in a top-level "signed_as" string, and the launcher refuses a file whose
+// name is not the one it asked for: game A's manifest served at game B's
+// address, or the dev games.json at the public address. The name is inside the
+// signed bytes, so it cannot be changed without breaking the signature. Readers
+// that do not check it ignore it, as they ignore every unknown key.
+
+// The name the games.json of channel `channel_name` (Channel::name) carries:
+// "games.json" for the public channel, "<channel> games.json" for any other
+// ("dev games.json").
+std::string games_json_signed_as(const std::string& channel_name);
+
+// The name the manifest of game `game_id` (games[].id) carries: "<id> manifest",
+// e.g. "mewgenics manifest".
+std::string manifest_signed_as(const std::string& game_id);
+
+// `signed_as` is what the file says it is ("" when it has no "signed_as"),
+// `want` the name the launcher asked for. -> empty when they are the same, else
+// why not (one line, naming `what`, e.g. `the manifest is signed as "a
+// manifest", not "b manifest"`).
+std::string check_signed_as(const std::string& what, const std::string& signed_as,
+                            const std::string& want);
+
 }  // namespace ffb

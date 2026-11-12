@@ -94,4 +94,17 @@ std::string check_signature(const std::string& what, const std::string& data,
     return what + ": the signature does not match";
 }
 
+std::string games_json_signed_as(const std::string& channel_name) {
+    return channel_name == "public" ? std::string("games.json") : channel_name + " games.json";
+}
+
+std::string manifest_signed_as(const std::string& game_id) { return game_id + " manifest"; }
+
+std::string check_signed_as(const std::string& what, const std::string& signed_as,
+                            const std::string& want) {
+    if (signed_as == want) return std::string();
+    if (signed_as.empty()) return what + " does not say which file it is (no \"signed_as\")";
+    return what + " is signed as \"" + signed_as + "\", not \"" + want + "\"";
+}
+
 }  // namespace ffb

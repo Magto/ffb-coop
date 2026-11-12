@@ -144,6 +144,11 @@ bool parse_manifest(const std::string& text, Manifest* out, std::string* why) {
     if (!j.is_object()) return reject("the manifest is not a JSON object");
 
     Manifest m;
+    const auto sa = j.find("signed_as");
+    if (sa != j.end()) {
+        if (!sa->is_string()) return reject("\"signed_as\" is not a string");
+        m.signed_as = sa->get<std::string>();
+    }
     const auto v = j.find("version");
     if (v == j.end() || !v->is_string()) return reject("\"version\" is missing or not a string");
     m.version = v->get<std::string>();
@@ -202,7 +207,8 @@ std::string sibling_url(const std::string& manifest_url, const std::string& name
 }
 
 PackageResult update_package(const std::string& package_dir, const std::string& manifest_url,
-                             const std::string& required_launcher, Net& net, std::FILE* log,
+                             const std::string& game_id, const std::string& required_launcher, Net& net,
+                             std::FILE* log,
                              const std::vector<PublicKey>& keys) {
     PackageResult res;
 
@@ -242,6 +248,13 @@ PackageResult update_package(const std::string& package_dir, const std::string& 
     Manifest m;
     if (!parse_manifest(body, &m, &res.reason)) {
         res.outcome = PackageOutcome::Invalid;
+        return res;
+    }
+    // Signed, but for this address? Game A's genuine manifest served at game B's
+    // address is refused here, before anything in it is used (#23).
+    res.reason = check_signed_as("the manifest", m.signed_as, manifest_signed_as(game_id));
+    if (!res.reason.empty()) {
+        res.outcome = PackageOutcome::WrongAddress;
         return res;
     }
     res.version       = m.version;
