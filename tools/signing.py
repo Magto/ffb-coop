@@ -8,6 +8,10 @@ The format, shared with mewgenics-coop's update manifest (Magto/mewgenics-coop#5
 64-byte ed25519 signature (RFC 8032) over the exact bytes of FILE, written as 128 lowercase hex digits and a
 newline. FILE itself is not changed, so a reader that does not check signatures reads it as before.
 
+A signature covers bytes, not an address, so what this repo signs also names itself inside the signed bytes (#23):
+a top-level "signed_as" string, "games.json", "dev games.json" or "<game id> manifest" (games_json_signed_as,
+manifest_signed_as below; src/signature.h has the launcher's copy of the rule). `sign` signs any file as it is.
+
 The private key is 32 raw bytes, the ed25519 seed, in the file COOPMODS_SIGNING_KEY names, else in
 ~/.config/coopmods/signing.key. It lives on Martin's machine only, mode 600, with an offline backup in his
 password manager: never in a repo, never on the server, never printed. Without it nothing is signed.
@@ -112,6 +116,22 @@ def verify_bytes(data, sig_text, keys_hex):
         except (InvalidSignature, ValueError):
             continue
     return False
+
+
+def signature_url(url):
+    """-> where a launcher fetches the .sig of the file at `url`: its query or fragment dropped, ".sig" appended
+    (src/signature.cpp, signature_url)."""
+    return url.split("?", 1)[0].split("#", 1)[0] + SIG_SUFFIX
+
+
+def games_json_signed_as(channel="public"):
+    """The "signed_as" of a channel's games.json (#23): "games.json", or "<channel> games.json"."""
+    return "games.json" if channel == "public" else f"{channel} games.json"
+
+
+def manifest_signed_as(game_id):
+    """The "signed_as" of a game's manifest (#23): "<games[].id> manifest", e.g. "mewgenics manifest"."""
+    return f"{game_id} manifest"
 
 
 def sign_file(path, private_key):

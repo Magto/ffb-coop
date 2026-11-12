@@ -14,13 +14,17 @@ What it does, in order, and what makes it refuse:
    ProductVersion disagree, when it is not a release version N.0.0, when --release N is given and the exe is
    not N.0.0 (set src/ffb_version.h and rebuild), or when --version is given and differs from the exe's.
 3. Builds games.json: the `launcher` block from those bytes, the games list from site/games.json.in, and
+   "signed_as": "games.json" (#23, docs/SPEC.md "Signatures": the file names itself inside the signed bytes), and
    checks the result against every docs/SPEC.md rule (a file the launcher would reject is never written).
    Signs it (#21, tools/signing.py): games.json.sig beside it, with the private key from COOPMODS_SIGNING_KEY or
    ~/.config/coopmods/signing.key. Refuses without that key, or with one whose public key is not in
    src/trusted_keys.h (the launcher would refuse what it signs). A --dry-run without the key only warns.
 4. Compares with the games.json that is live now. Refuses a lower launcher version (installed launchers
    would never take it) and the same version with different bytes (installed launchers compare versions
-   only, so they would never fetch the new bytes -- bump the version).
+   only, so they would never fetch the new bytes -- bump the version). Then reads every listed game's live
+   manifest and its .sig, and refuses unless each is signed by a trusted key and says "signed_as":
+   "<id> manifest" (#23): a launcher from #23 on refuses any other, so publishing it first would leave that
+   game's players on their installed version. A --dry-run only warns.
 5. Checks that ffbcoop.com routes /games.json.sig to the files (not the placeholder), so a launcher can
    fetch the signature. Uploads the exe under a temporary name, checks its sha256 on the server, moves it
    over launcher/FFB Co-op.exe; then games.json.sig and games.json the same way, games.json LAST, so it never
@@ -41,6 +45,8 @@ the same version rules against the live dev games.json (read over ssh: publishin
 dev version MAJOR.0.D with D >= 1, which no release exe ever is; --release is refused with --dev. The games list is
 site/dev-games.json.in. --package writes a manifest for every file in DIR (all required except --optional ones),
 signs it and uploads it to coopmods.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
+The dev games.json says "signed_as": "dev games.json", a dev manifest "<GAME_ID> manifest" (#23). The live-manifest
+check of step 4 is the public publish's only: a dev manifest is behind the dev password.
 Before uploading it checks that ffbcoop.com/dev/games.json answers 401 without a login, so nothing goes up while
 the gate is not deployed; afterwards, that every published URL still does.
 
@@ -67,6 +73,7 @@ PLACEHOLDER = b"Mewgenics Coop -- coopmods.com"   # what the site block answers,
 DEFAULT_EXE = os.path.join(REPO, "build", "Release", EXE_NAME)
 GAMES_IN = os.path.join(REPO, "site", "games.json.in")
 GATES = ("tools/doc_rules.sh", "tools/scan_rules.sh")   # DOC_RULES_CMD, SCAN_RULES_CMD
+GAMES_SIGNED_AS = signing.games_json_signed_as("public")   # "games.json" (#23)
 
 # The dev channel (#26): one folder on the server, one URL prefix behind the shared dev password.
 DEV_REMOTE = REMOTE + "/dev"
@@ -81,6 +88,7 @@ DEV_OLD_GAMES_URL = f"{OLD_URL}/dev/games.json"    # what a dev exe up to 2.0.1 
 DEV_SIG_URL = DEV_GAMES_URL + signing.SIG_SUFFIX
 DEV_DEFAULT_EXE = os.path.join(REPO, "build", "Release", DEV_EXE_NAME)
 DEV_GAMES_IN = os.path.join(REPO, "site", "dev-games.json.in")
+DEV_GAMES_SIGNED_AS = signing.games_json_signed_as("dev")   # "dev games.json" (#23)
 DEV_OUT_DIR = os.path.join(REPO, "site", "dev")
 # The shared dev password, the same variable the dev exe's build reads (cmake/dev_password.cmake): optional here,
 # lets the post-publish check read games.json back as the dev exe does, with the user name "dev".
@@ -190,6 +198,8 @@ def validate_games_json(doc):
         return ["top level is not an object"]
     if not _is_int(doc.get("schema")) or doc.get("schema") != 1:
         p.append("schema must be the integer 1")
+    if "signed_as" in doc and not isinstance(doc["signed_as"], str):
+        p.append("signed_as is not a string")
     la = doc.get("launcher")
     if not isinstance(la, dict):
         p.append("launcher missing or not an object")
@@ -239,14 +249,18 @@ def validate_games_json(doc):
     return p
 
 
-def build_games_json(games_in, exe_bytes=None, launcher=None):
-    """-> the games.json document: the launcher block from `exe_bytes` (or `launcher` as given), the games from
-    `games_in` (the parsed site/games.json.in). Refuses rather than return a file the launcher would reject."""
+def build_games_json(games_in, exe_bytes=None, launcher=None, signed_as=GAMES_SIGNED_AS):
+    """-> the games.json document: what it is (`signed_as`, #23), the launcher block from `exe_bytes` (or `launcher`
+    as given), the games from `games_in` (the parsed site/games.json.in). Refuses rather than return a file the
+    launcher would reject."""
     if not isinstance(games_in, dict) or games_in.get("schema") != 1:
         raise Refused("site/games.json.in must be an object with \"schema\": 1")
     if "launcher" in games_in:
         raise Refused("site/games.json.in must not carry a launcher block -- it is written from the exe")
-    doc = {"schema": 1, "launcher": launcher if launcher is not None else launcher_block(exe_bytes),
+    if "signed_as" in games_in:
+        raise Refused("site/games.json.in must not carry \"signed_as\" -- it is written by this script (#23)")
+    doc = {"schema": 1, "signed_as": signed_as,
+           "launcher": launcher if launcher is not None else launcher_block(exe_bytes),
            "games": games_in.get("games")}
     problems = validate_games_json(doc)
     if problems:
@@ -290,9 +304,10 @@ def dev_manifest_url(game_id):
     return f"{DEV_URL}/{game_id}/manifest.json"
 
 
-def build_package_manifest(folder, version, optional=()):
-    """-> the manifest of every file in `folder` (docs/SPEC.md, "The game manifest"): its name, size and sha256,
-    required unless named in `optional`. Refuses a folder the launcher could not install from."""
+def build_package_manifest(game_id, folder, version, optional=()):
+    """-> game `game_id`'s manifest of every file in `folder` (docs/SPEC.md, "The game manifest"): its name, size and
+    sha256, required unless named in `optional`, and "signed_as": "<game_id> manifest" (#23). Refuses a folder the
+    launcher could not install from."""
     if not isinstance(version, str) or not (VERSION_RE.fullmatch(version) or re.fullmatch(r"[0-9]+", version)):
         raise Refused(f"--package-version {version!r} is not N or X.Y.Z")
     if not os.path.isdir(folder):
@@ -322,7 +337,7 @@ def build_package_manifest(folder, version, optional=()):
     missing = [o for o in optional if o not in [f["name"] for f in files]]
     if missing:
         raise Refused(f"--optional names a file that is not in {folder}: {', '.join(missing)}")
-    return {"version": version, "files": files}
+    return {"signed_as": signing.manifest_signed_as(game_id), "version": version, "files": files}
 
 
 # ---- the network -----------------------------------------------------------------------------------
@@ -437,6 +452,48 @@ def check_sig_route():
     if data is not None and data.strip() == PLACEHOLDER:
         raise Refused(f"ffbcoop.com does not route {SIG_URL} to the files yet -- add /games.json.sig to the "
                       "site block's matcher first (site/README.md)")
+
+
+def manifest_problem(game, data, sig, keys):
+    """None when `data`, the bytes served at `game`'s manifest URL, is signed by one of `keys` (`sig` is the .sig
+    beside it) and names itself as that game's manifest (#23); else why a launcher from #23 on would refuse it."""
+    if data is None:
+        return "is not there (HTTP 404)"
+    if sig is None or not signing.verify_bytes(data, sig, keys):
+        return "has no valid signature by a trusted key beside it"
+    try:
+        m = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return "is not JSON"
+    want = signing.manifest_signed_as(game["id"])
+    got = m.get("signed_as") if isinstance(m, dict) else None
+    if got != want:
+        return f"says \"signed_as\": {json.dumps(got)}, not {json.dumps(want)}"
+    return None
+
+
+def check_manifest_names(doc, keys, dry_run):
+    """Refuse before uploading anything when a game's live manifest is one a launcher from #23 on would refuse: not
+    signed by a trusted key, or not saying "signed_as": "<id> manifest". Each game's own publish writes its manifest
+    (Mewgenics': mewgenics-coop tools/publish_site.py), so it must carry the name before a launcher that checks it
+    goes out (docs/SPEC.md, "Signatures"). A --dry-run only warns."""
+    problems = []
+    for g in doc["games"]:
+        url = g["manifest"]
+        try:
+            why = manifest_problem(g, fetch(url), fetch(signing.signature_url(url)), keys)
+        except Exception as e:   # noqa: BLE001 -- any network failure
+            why = f"could not be read ({e})"
+        if why:
+            problems.append(f"{g['id']}: {url} {why}")
+    if not problems:
+        return
+    msg = ("a launcher from #23 on would refuse these manifests, and their players would stay on the installed "
+           "version -- publish each with \"signed_as\": \"<id> manifest\" first:\n  " + "\n  ".join(problems))
+    if dry_run:
+        print(f"warning: {msg}\n  a real publish refuses")
+        return
+    raise Refused(msg)
 
 
 def signing_key(dry_run):
@@ -610,7 +667,7 @@ def publish_dev(a):
                           "FFB Co-op - dev.exe, and bump FFB_DEV_BUILD in src/ffb_version.h")
         if a.version and a.version != launcher["version"]:
             raise Refused(f"--version {a.version} but the exe says {launcher['version']}")
-    doc = build_games_json(games_in, launcher=launcher)
+    doc = build_games_json(games_in, launcher=launcher, signed_as=DEV_GAMES_SIGNED_AS)
     if not doc["launcher"]["url"].startswith(DEV_URL + "/"):
         raise Refused(f"the dev launcher URL {doc['launcher']['url']} is not under {DEV_URL}/ -- a dev exe up to "
                       "2.0.1 sends the dev password nowhere else (#35)")
@@ -625,7 +682,7 @@ def publish_dev(a):
         if game["manifest"] != dev_manifest_url(game_id):
             raise Refused(f"--package {game_id}: its manifest in {os.path.relpath(a.games_in, REPO)} is "
                           f"{game['manifest']}, not {dev_manifest_url(game_id)}")
-        m = build_package_manifest(folder, a.package_version, a.optional or ())
+        m = build_package_manifest(game_id, folder, a.package_version, a.optional or ())
         # The launcher refuses a manifest that does not list the game's launcher as a required file
         # (docs/SPEC.md, games[].launcher), so such a package would never install.
         if not any(f["name"] == game["launcher"] and f["required"] for f in m["files"]):
@@ -710,6 +767,8 @@ def publish(a):
         live = None
     check_against_live(doc, live)
     key = signing_key(a.dry_run)
+    keys = signing.trusted_keys(REPO)
+    check_manifest_names(doc, keys, a.dry_run)
 
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     text = dumps(doc)
@@ -720,7 +779,6 @@ def publish(a):
         f.write(text)
     print(f"wrote {a.out}: launcher {ver}, sha256 {doc['launcher']['sha256']}, "
           f"{doc['launcher']['size']} bytes, {len(doc['games'])} game(s)")
-    keys = signing.trusted_keys(REPO)
     if key is not None:
         signing.sign_file(a.out, key)
         with open(a.out, "rb") as f, open(sig_out, "rb") as g:

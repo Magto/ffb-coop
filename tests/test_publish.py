@@ -130,6 +130,113 @@ class Writer(unittest.TestCase):
             publish.build_games_json(g, fake_exe())
 
 
+class SignedAs(unittest.TestCase):
+    """#23: every file this repo signs names itself in "signed_as", inside the signed bytes, and a public publish
+    refuses while a listed game's live manifest does not."""
+
+    MANIFEST_URL = GAMES_IN["games"][0]["manifest"]
+
+    def setUp(self):
+        self.key = signing.load_trusted_key(REPO)   # the RFC 8032 test key (setUpModule)
+        self.doc = publish.build_games_json(copy.deepcopy(GAMES_IN), fake_exe((1, 0, 0, 0)))
+
+    def serve(self, manifest, sig=None, sig_key=None):
+        """A fetch that answers the manifest (a dict, or bytes as they are) and its .sig."""
+        data = manifest if isinstance(manifest, (bytes, type(None))) else json.dumps(manifest).encode()
+        if sig is None and data is not None:
+            sig = signing.sign_bytes(data, sig_key or self.key).encode()
+        pages = {self.MANIFEST_URL: data, self.MANIFEST_URL + ".sig": sig}
+        return mock.patch.object(publish, "fetch", side_effect=lambda url, timeout=20: pages[url])
+
+    def test_games_json_names_itself(self):
+        self.assertEqual(self.doc["signed_as"], "games.json")
+        self.assertEqual(list(self.doc)[:2], ["schema", "signed_as"])
+        launcher = {"version": "1.0.1", "url": DEV_LAUNCHER_URL, "sha256": "0" * 64, "size": 1}
+        dev = publish.build_games_json(load(publish.DEV_GAMES_IN), launcher=launcher,
+                                       signed_as=publish.DEV_GAMES_SIGNED_AS)
+        self.assertEqual(dev["signed_as"], "dev games.json")
+
+    def test_names_are_the_launchers(self):
+        # The same strings src/signature.cpp builds (test_signature checks that side).
+        self.assertEqual(signing.games_json_signed_as(), "games.json")
+        self.assertEqual(signing.games_json_signed_as("dev"), "dev games.json")
+        self.assertEqual(signing.manifest_signed_as("mewgenics"), "mewgenics manifest")
+        self.assertEqual(signing.signature_url("https://h/u/manifest.json?x=1#y"), "https://h/u/manifest.json.sig")
+
+    def test_source_with_signed_as_refused(self):
+        g = copy.deepcopy(GAMES_IN)
+        g["signed_as"] = "games.json"
+        with self.assertRaises(publish.Refused):
+            publish.build_games_json(g, fake_exe())
+
+    def test_validation(self):
+        self.assertEqual(publish.validate_games_json(self.doc), [])
+        old = copy.deepcopy(self.doc)
+        del old["signed_as"]   # a games.json from before #23 is still valid, so the live comparison still runs
+        self.assertEqual(publish.validate_games_json(old), [])
+        self.doc["signed_as"] = 1
+        self.assertEqual(publish.validate_games_json(self.doc), ["signed_as is not a string"])
+
+    def test_live_comparison_reads_a_live_file_from_before_23(self):
+        live = publish.build_games_json(copy.deepcopy(GAMES_IN), fake_exe((2, 0, 0, 0), pad=b"v2"))
+        del live["signed_as"]
+        with self.assertRaises(publish.Refused):
+            publish.check_against_live(self.doc, live)   # 1.0.0 under a live 2.0.0: still refused
+
+    def test_package_manifest_names_its_game(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "mewcoop_loader.exe"), "wb") as f:
+                f.write(b"loader")
+            m = publish.build_package_manifest("mewgenics", d, "77.0.1")
+        self.assertEqual(m["signed_as"], "mewgenics manifest")
+
+    def test_live_manifest_with_its_name_passes(self):
+        with self.serve({"signed_as": "mewgenics manifest", "version": "1", "files": []}):
+            publish.check_manifest_names(self.doc, [TEST_PUB], dry_run=False)
+
+    def test_live_manifest_problems_refused(self):
+        right = {"signed_as": "mewgenics manifest", "version": "1", "files": []}
+        cases = {
+            "no signed_as (Mewgenics' manifest before #23)": dict(manifest={"version": "1", "files": []}),
+            "another game's name": dict(manifest=dict(right, signed_as="tab manifest")),
+            "signed by a key nobody trusts": dict(
+                manifest=right, sig_key=signing._ed25519()[0].Ed25519PrivateKey.from_private_bytes(OTHER_SEED)),
+            "no .sig": dict(manifest=right, sig=b""),
+            "not there": dict(manifest=None),
+            "not JSON": dict(manifest=b"<html>"),
+        }
+        for what, c in cases.items():
+            with self.subTest(what), self.serve(**c):
+                with self.assertRaises(publish.Refused) as e:
+                    publish.check_manifest_names(self.doc, [TEST_PUB], dry_run=False)
+                self.assertIn("mewgenics: " + self.MANIFEST_URL, str(e.exception))
+
+    def test_live_manifest_problem_only_warns_on_a_dry_run(self):
+        with self.serve({"version": "1", "files": []}):
+            publish.check_manifest_names(self.doc, [TEST_PUB], dry_run=True)
+
+    def test_unreadable_live_manifest_refused(self):
+        with mock.patch.object(publish, "fetch", side_effect=OSError("no route to host")):
+            with self.assertRaises(publish.Refused):
+                publish.check_manifest_names(self.doc, [TEST_PUB], dry_run=False)
+
+    def test_real_publish_refuses_before_uploading(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = os.path.join(d, "FFB Co-op.exe")
+            with open(exe, "wb") as f:
+                f.write(fake_exe((1, 0, 0, 0)))
+            run = mock.Mock(side_effect=AssertionError("uploaded"))
+            with mock.patch.object(publish, "run_gates"), mock.patch.object(publish, "run", run), \
+                    mock.patch.object(publish, "fetch_live_games", return_value=None), \
+                    self.serve({"version": "1", "files": []}):
+                games_in = os.path.join(d, "games.json.in")
+                with open(games_in, "w", encoding="utf-8") as f:
+                    json.dump(GAMES_IN, f)
+                self.assertEqual(publish.main(["--exe", exe, "--games-in", games_in,
+                                               "--out", os.path.join(d, "games.json")]), 1)
+            run.assert_not_called()
+
+
 class PlainName(unittest.TestCase):
     def test_rule(self):
         for ok in ("Mewgenics.exe", "mewcoop_loader.exe", "a b.exe"):
@@ -185,6 +292,7 @@ class DryRun(unittest.TestCase):
         self.out = os.path.join(self.tmp.name, "games.json")
         self.patches = [mock.patch.object(publish, "run_gates"),
                         mock.patch.object(publish, "fetch_live_games", return_value=None),
+                        mock.patch.object(publish, "check_manifest_names"),   # its own tests are in SignedAs
                         mock.patch.object(publish, "run", side_effect=AssertionError("dry run touched the server"))]
         for p in self.patches: p.start()
 
@@ -216,6 +324,7 @@ class Release(unittest.TestCase):
         self.live = None
         self.patches = [mock.patch.object(publish, "run_gates"),
                         mock.patch.object(publish, "fetch_live_games", side_effect=lambda: self.live),
+                        mock.patch.object(publish, "check_manifest_names"),   # its own tests are in SignedAs
                         mock.patch.object(publish, "run", side_effect=AssertionError("dry run touched the server"))]
         for p in self.patches: p.start()
 
@@ -327,6 +436,7 @@ class Upload(unittest.TestCase):
         self.server = FakeServer()
         self.patches = [mock.patch.object(publish, "run_gates"),
                         mock.patch.object(publish, "fetch_live_games", return_value=None),
+                        mock.patch.object(publish, "check_manifest_names"),   # its own tests are in SignedAs
                         mock.patch.object(publish, "run", side_effect=self.server.run),
                         mock.patch.object(publish, "fetch", side_effect=self.server.fetch)]
         for p in self.patches: p.start()
@@ -410,6 +520,7 @@ class Gates(unittest.TestCase):
         self.patches = [mock.patch.object(publish, "REPO", self.tmp.name),
                         mock.patch.object(publish, "fetch_live_games", return_value=None),
                         mock.patch.object(publish, "fetch", side_effect=AssertionError("fetched")),
+                        mock.patch.object(publish, "check_manifest_names"),   # its own tests are in SignedAs
                         mock.patch.object(publish, "check_sig_route"),   # its own tests are in Signing
                         mock.patch.object(publish, "run", self.run)]
         for p in self.patches: p.start()
@@ -466,6 +577,7 @@ class Signing(unittest.TestCase):
         self.server = FakeServer()
         self.patches = [mock.patch.object(publish, "run_gates"),
                         mock.patch.object(publish, "fetch_live_games", return_value=None),
+                        mock.patch.object(publish, "check_manifest_names"),   # its own tests are in SignedAs
                         mock.patch.object(publish, "run", side_effect=self.server.run),
                         mock.patch.object(publish, "fetch", side_effect=self.server.fetch)]
         for p in self.patches: p.start()
@@ -665,7 +777,8 @@ class Dev(unittest.TestCase):
 
     def live_dev(self, version):
         launcher = {"version": version, "url": DEV_LAUNCHER_URL, "sha256": "0" * 64, "size": 1}
-        doc = publish.build_games_json(load(publish.DEV_GAMES_IN), launcher=launcher)
+        doc = publish.build_games_json(load(publish.DEV_GAMES_IN), launcher=launcher,
+                                       signed_as=publish.DEV_GAMES_SIGNED_AS)
         self.server.files[DEV_REMOTE + "/games.json"] = publish.dumps(doc).encode()
         return doc
 
@@ -712,6 +825,8 @@ class Dev(unittest.TestCase):
         self.assertTrue(signing.verify_bytes(f[DEV_REMOTE + "/mewgenics/manifest.json"],
                                              f[DEV_REMOTE + "/mewgenics/manifest.json.sig"], [TEST_PUB]))
         self.assertEqual(manifest["version"], "77.0.1")
+        self.assertEqual(manifest["signed_as"], "mewgenics manifest")   # #23
+        self.assertEqual(games["signed_as"], "dev games.json")
         self.assertEqual({e["name"]: (e["size"], e["sha256"], e["required"]) for e in manifest["files"]},
                          {n: (len(d), hashlib.sha256(d).hexdigest(), n != "mewcoop_ui.swf")
                           for n, d in self.pkg_files.items()})
@@ -862,22 +977,22 @@ class Dev(unittest.TestCase):
 
     def test_bad_package_folders_refused(self):
         with self.assertRaises(publish.Refused):
-            publish.build_package_manifest(os.path.join(self.tmp.name, "nope"), "77.0.1")
+            publish.build_package_manifest("mewgenics", os.path.join(self.tmp.name, "nope"), "77.0.1")
         empty = os.path.join(self.tmp.name, "empty")
         os.makedirs(empty)
         with self.assertRaises(publish.Refused):
-            publish.build_package_manifest(empty, "77.0.1")
+            publish.build_package_manifest("mewgenics", empty, "77.0.1")
         with self.assertRaises(publish.Refused):
-            publish.build_package_manifest(self.pkg, "seventy")
+            publish.build_package_manifest("mewgenics", self.pkg, "seventy")
         with self.assertRaises(publish.Refused):
-            publish.build_package_manifest(self.pkg, "77.0.1", optional=("absent.dll",))
+            publish.build_package_manifest("mewgenics", self.pkg, "77.0.1", optional=("absent.dll",))
         for bad in ("CON.dll", "manifest.json", "x.sig"):
             d = os.path.join(self.tmp.name, "bad-" + bad)
             os.makedirs(d)
             with open(os.path.join(d, bad), "wb") as f:
                 f.write(b"x")
             with self.subTest(name=bad), self.assertRaises(publish.Refused):
-                publish.build_package_manifest(d, "77.0.1")
+                publish.build_package_manifest("mewgenics", d, "77.0.1")
 
     def test_dev_put_never_leaves_the_dev_folder(self):
         for name in ("../games.json", "/games.json", "..", "a/b/c", "launcher/../../games.json", "",
