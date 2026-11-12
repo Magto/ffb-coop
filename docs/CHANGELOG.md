@@ -5,6 +5,7 @@ closes.
 
 ## Unreleased
 
+- FFB Co-op.exe refuses a signed games.json or game manifest meant for another address -- another game's manifest, or the dev channel's games.json -- and a games.json that names an older launcher than the one running (an old file served again). Each is one warning line, nothing is updated or downloaded, and the installed version starts. (#23)
 - FFB Co-op.exe is v3 (3.0.0): the public launcher gets the new transparent FFB icon and downloads from ffbcoop.com first; v2 updates itself to it. (#39)
 - FFB Co-op - dev.exe 2.0.3 has the new transparent FFB icon, by Jals: the rainbow-horned bunny over "FFB" with no blue square behind it, sharp at every size. FFB Co-op.exe stays 2.0.0 and gets it with its next release.
 - FFB Co-op.exe and FFB Co-op - dev.exe have the new FFB icon: the rainbow-horned bunny over "FFB", in Explorer, on the taskbar and in shortcuts. (#39)
