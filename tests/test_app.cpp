@@ -1125,16 +1125,32 @@ void test_dev_self_update() {
         CHECK(io.self_.urls.size() == 1 && io.self_.urls[0] == kDevSelfUrl);
         CHECK(io.starts.empty());
     }
-    std::printf("dev exe: the same or a lower dev version is not downloaded\n");
-    for (const char* ver : {"1.0.1", "1.0.0"}) {
+    std::printf("dev exe: the same dev version is not downloaded\n");
+    {
         TempFolder t;
         write(t.path / "Mewgenics.exe", "game");
         FakeIo io;
         serve_dev(io);
         io.self_.download_ok = true;
-        io.net_.pages[kDevGamesUrl] = {200, dev_games_json(ver)};
+        io.net_.pages[kDevGamesUrl] = {200, dev_games_json("1.0.1")};
         CHECK(ffb::run_app(dev_input(t), io) == 0);
         CHECK(io.self_.downloads == 0);
+        CHECK(io.starts.size() == 1);
+    }
+    std::printf("dev exe: a lower dev version is an old file served again (#23): refused, the installed dev version starts\n");
+    {
+        TempFolder t;
+        write(t.path / "Mewgenics.exe", "game");
+        install_dev(t);
+        FakeIo io;
+        serve_dev(io);
+        io.self_.download_ok = true;
+        io.net_.pages[kDevGamesUrl] = {200, dev_games_json("1.0.0")};
+        CHECK(ffb::run_app(dev_input(t), io) == 0);
+        CHECK(io.self_.downloads == 0);
+        CHECK(io.errs.size() == 1 &&
+              io.errs[0] == "ffbcoop.com sent an older games.json (launcher 1.0.0, this is 1.0.1) -- starting the "
+                            "installed version.");
         CHECK(io.starts.size() == 1);
     }
     std::printf("dev exe: a dev games.json without a valid signature is refused, no self-update\n");
