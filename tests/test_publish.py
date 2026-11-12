@@ -4,7 +4,7 @@ RFC 8032's TEST 1 key and makes that the one trusted key.
 
     python -m unittest discover -s tests -p "test_*.py"
 """
-import copy, hashlib, json, os, struct, sys, tempfile, unittest
+import contextlib, copy, hashlib, io, json, os, struct, sys, tempfile, unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
@@ -232,9 +232,12 @@ class SignedAs(unittest.TestCase):
                 games_in = os.path.join(d, "games.json.in")
                 with open(games_in, "w", encoding="utf-8") as f:
                     json.dump(GAMES_IN, f)
-                self.assertEqual(publish.main(["--exe", exe, "--games-in", games_in,
-                                               "--out", os.path.join(d, "games.json")]), 1)
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(publish.main(["--exe", exe, "--games-in", games_in,
+                                                   "--out", os.path.join(d, "games.json")]), 1)
             run.assert_not_called()
+            self.assertIn('says "signed_as": null, not "mewgenics manifest"', err.getvalue())
 
 
 class PlainName(unittest.TestCase):
