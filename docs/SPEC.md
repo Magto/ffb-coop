@@ -215,6 +215,7 @@ exe and the package too.
 | `.sig` missing (any HTTP status but 200), not 128 hex digits, signed by another key, or the file changed by even one byte | refused: one warning line, **no self-update**, the installed version starts ([Offline](#offline)) | refused: one warning line, nothing downloaded, **no file in the game folder changes** (not even the kept games.json), the installed version starts |
 | `.sig` gets no answer at all (transport failure) | as unreachable | as unreachable |
 | Signed, but `signed_as` missing or not the name asked for (#23): another channel's games.json, another game's manifest | refused like an unsigned file | refused like an unsigned file |
+| Signed with the name asked for, but by a key that may not sign that name (#23, [Where the keys live](#where-the-keys-live)): a game's own key on games.json or on another game's manifest | refused like an unsigned file | refused like an unsigned file |
 | Signed, but `launcher.version` is **lower** than the running launcher's (#23): an old games.json served again | refused like an unsigned file | (not checked; see Not covered) |
 
 The warning reads `ffbcoop.com sent a file without a valid signature (<reason>) -- starting the
@@ -226,7 +227,9 @@ screen with that prefix ([Offline](#offline)).
 A file signed for another address reads `ffbcoop.com sent a signed file meant for another address
 (<reason>) -- starting the installed version.`, where `<reason>` is `games.json is signed as "<name>", not
 "games.json"`, `games.json does not say which file it is (no "signed_as")`, or the same two with `the manifest`
-and `"<id> manifest"`. An old games.json reads `ffbcoop.com sent an older games.json (launcher <listed>, this is
+and `"<id> manifest"`. A file signed by a key that may not sign its name reads `ffbcoop.com sent a file signed
+by a key that may not sign it (games.json is signed as "games.json" by a key that may sign only "tab
+manifest") -- starting the installed version.`, the same with `the manifest` for a manifest. An old games.json reads `ffbcoop.com sent an older games.json (launcher <listed>, this is
 <running>) -- starting the installed version.` A launcher compares the listed version with its own and
 nothing else: a build newer than the published one (a local build, a dev exe not yet published) refuses
 the live games.json the same way and starts its installed package until a newer one is published.
@@ -236,9 +239,19 @@ and are not checked again: they are on the player's own disk.
 
 ### Where the keys live
 
-- **Public key:** compiled into FFB Co-op.exe from `src/trusted_keys.h`, one 64-hex-digit key per
-  line. A file signed by **any** key in that list is accepted. Today it holds one key, made
-  2026-10-01: `43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59`.
+- **Public keys:** compiled into FFB Co-op.exe from `src/trusted_keys.h`, one row per key and name:
+  `{"<64 hex digits>", "<name>"},`. The name is a `signed_as` the key may sign, or `"*"` for every name
+  (#23, Martin's decision on #43, 2026-11-12: "a — Do it in this PR"). A file is accepted only when a
+  listed key signed it **and** one of that key's rows allows its `signed_as`; the launcher checks this
+  after the name (`check_may_sign`). Today the list holds one row, Martin's key made 2026-10-01, for
+  every name: `43706304f0fae090f7a2afd96e06d207ab193ea52a527d6576073ce281b30a59`, `"*"`.
+- **A game's own key** may sign that game's manifest and nothing else: its row is
+  `{"<key>", "<games[].id> manifest"}`, e.g. `"tab manifest"`, never `"*"`. So it can never sign
+  games.json (which decides the launcher's self-update and every game's manifest address) or another
+  game's manifest. To add one: the game's maintainer makes the key pair and keeps the private half,
+  as the private key below is kept; Martin adds the row in a PR; it reaches players with the next
+  launcher release, like a rotation's step 1. From that release on, that game's manifests may be signed
+  with either key. A key that may sign two names has two rows.
 - **Private key:** 32 raw bytes (the ed25519 seed) in `~/.config/coopmods/signing.key` on
   Tubal-Cain's WSL side, mode 600 in a mode-700 folder, with an offline backup in Martin's password
   manager (Martin's decision, 2026-10-01: "yes, I like your suggestion where it should live"). It is
@@ -247,7 +260,9 @@ and are not checked again: they are on the player's own disk.
 - **Signing:** `tools/signing.py` (needs Python `cryptography`). `tools/publish.py` signs games.json
   with it and refuses to publish without the key, or with a key whose public key is not in
   `src/trusted_keys.h`. `python tools/signing.py sign <file>` writes `<file>.sig` for anything else,
-  such as a manifest; `verify` checks one.
+  such as a manifest; `verify` checks one. Both read the rows: `sign` refuses a file whose `signed_as`
+  the key may not sign (a file with no `signed_as` only with a `"*"` key), and `verify` says BAD for it,
+  as the launcher would refuse it. A publish's live-manifest check applies the same rule.
 
 ### Rotation
 
@@ -314,7 +329,7 @@ refuses one without its name, with the warning above).
 
 ### Not covered
 
-- **Wrong address** — closed by #23 across games and channels' games.json; a game's dev and public manifest carry the same name, so either can be served at the other's address.
+- **Wrong address** — closed by #23 across games and channels' games.json, and a game's own key signs only its own manifest; a game's dev and public manifest carry the same name, so either can be served at the other's address.
 - **Replay** — closed by #23 for a games.json naming an older launcher; an older manifest of the same game, or an older games.json naming the same launcher, is still accepted (an older package would install).
 - **The launcher's own exe** is not Authenticode-signed (SmartScreen); that is a separate issue.
 

@@ -38,7 +38,9 @@ def setUpModule():
     _module["tmp"] = tempfile.TemporaryDirectory()
     key = write_key(os.path.join(_module["tmp"].name, "signing.key"), TEST_SEED)
     _module["patches"] = [mock.patch.dict(os.environ, {signing.KEY_ENV: key}),
-                          mock.patch.object(signing, "trusted_keys", return_value=[TEST_PUB])]
+                          mock.patch.object(signing, "trusted_keys", return_value=[TEST_PUB]),
+                          # The test key may sign every name, as Martin's key does (#23).
+                          mock.patch.object(signing, "key_rules", return_value=[(TEST_PUB, "*")])]
     for p in _module["patches"]: p.start()
 
 
@@ -238,6 +240,89 @@ class SignedAs(unittest.TestCase):
                                                    "--out", os.path.join(d, "games.json")]), 1)
             run.assert_not_called()
             self.assertIn('says "signed_as": null, not "mewgenics manifest"', err.getvalue())
+
+
+class KeyNames(unittest.TestCase):
+    """#23 review, finding 1: each trusted key may sign only the names its src/trusted_keys.h rows allow. TEST 2 plays
+    a game's own key that may sign only "tab manifest"."""
+
+    RULES = [(TEST_PUB, "*"), (OTHER_PUB, "tab manifest")]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.game_key = signing._ed25519()[0].Ed25519PrivateKey.from_private_bytes(OTHER_SEED)
+        self.patches = [mock.patch.object(signing, "key_rules", return_value=self.RULES),
+                        mock.patch.object(signing, "trusted_keys", return_value=[TEST_PUB, OTHER_PUB])]
+        for p in self.patches: p.start()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.tmp.cleanup()
+
+    def file(self, doc):
+        path = os.path.join(self.tmp.name, "f.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(doc if isinstance(doc, str) else json.dumps(doc))
+        return path
+
+    def test_real_rows(self):
+        # The list stays one row: Martin's key, every name. A game's key is added after #23 ships.
+        self.assertEqual(signing._rows(REPO), [(COOPMODS_PUB, "*")])
+
+    def test_may_sign(self):
+        for name in ("games.json", "dev games.json", "mewgenics manifest", "tab manifest", None):
+            self.assertTrue(signing.may_sign(TEST_PUB, name))
+        self.assertTrue(signing.may_sign(OTHER_PUB, "tab manifest"))
+        for name in ("games.json", "dev games.json", "mewgenics manifest", "Tab manifest", None):
+            with self.subTest(name=name):
+                self.assertFalse(signing.may_sign(OTHER_PUB, name))
+        self.assertFalse(signing.may_sign("ab" * 32, "tab manifest"))   # a key with no row
+
+    def test_game_key_signs_only_its_own_manifest(self):
+        ok = self.file({"signed_as": "tab manifest", "files": []})
+        self.assertTrue(os.path.exists(signing.sign_file(ok, self.game_key)))
+        for doc in ({"signed_as": "games.json"}, {"signed_as": "dev games.json"},
+                    {"signed_as": "mewgenics manifest"}, {"files": []}, "not json"):
+            with self.subTest(doc=doc):
+                path = self.file(doc)
+                if os.path.exists(path + ".sig"):
+                    os.remove(path + ".sig")
+                with self.assertRaises(signing.SigningError):
+                    signing.sign_file(path, self.game_key)
+                self.assertFalse(os.path.exists(path + ".sig"))
+
+    def test_verify_says_bad_for_a_name_the_key_may_not_sign(self):
+        path = self.file({"signed_as": "games.json"})
+        with open(path, "rb") as f:
+            data = f.read()
+        with open(path + ".sig", "w") as f:
+            f.write(signing.sign_bytes(data, self.game_key))   # a valid signature, by the wrong key
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(signing.main(["verify", path]), 1)
+        self.assertIn("BAD", out.getvalue())
+
+    def test_publish_with_a_game_key_refused(self):
+        exe = os.path.join(self.tmp.name, "FFB Co-op.exe")
+        with open(exe, "wb") as f:
+            f.write(fake_exe((1, 0, 0, 0)))
+        key = write_key(os.path.join(self.tmp.name, "game.key"), OTHER_SEED)
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {signing.KEY_ENV: key}), mock.patch.object(publish, "run_gates"), \
+                mock.patch.object(publish, "fetch_live_games", return_value=None), \
+                mock.patch.object(publish, "check_manifest_names"), contextlib.redirect_stderr(err):
+            self.assertEqual(publish.main(["--exe", exe, "--out", os.path.join(self.tmp.name, "games.json"),
+                                           "--dry-run"]), 1)
+        self.assertIn('may not sign a file with "signed_as": "games.json"', err.getvalue())
+
+    def test_live_manifest_signed_by_another_games_key_refused(self):
+        doc = publish.build_games_json(copy.deepcopy(GAMES_IN), fake_exe((1, 0, 0, 0)))
+        url = GAMES_IN["games"][0]["manifest"]
+        data = json.dumps({"signed_as": "mewgenics manifest", "files": []}).encode()
+        pages = {url: data, url + ".sig": signing.sign_bytes(data, self.game_key).encode()}
+        with mock.patch.object(publish, "fetch", side_effect=lambda u, timeout=20: pages[u]):
+            with self.assertRaises(publish.Refused) as e:
+                publish.check_manifest_names(doc, [TEST_PUB, OTHER_PUB], dry_run=False)
+        self.assertIn('a key that may not sign "mewgenics manifest"', str(e.exception))
 
 
 class PlainName(unittest.TestCase):

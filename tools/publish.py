@@ -460,7 +460,8 @@ def manifest_problem(game, data, sig, keys):
     beside it) and names itself as that game's manifest (#23); else why a launcher from #23 on would refuse it."""
     if data is None:
         return "is not there (HTTP 404)"
-    if sig is None or not signing.verify_bytes(data, sig, keys):
+    signer = None if sig is None else signing.signer_of(data, sig, keys)
+    if signer is None:
         return "has no valid signature by a trusted key beside it"
     try:
         m = json.loads(data.decode("utf-8"))
@@ -470,6 +471,8 @@ def manifest_problem(game, data, sig, keys):
     got = m.get("signed_as") if isinstance(m, dict) else None
     if got != want:
         return f"says \"signed_as\": {json.dumps(got)}, not {json.dumps(want)}"
+    if not signing.may_sign(signer, want):
+        return f"is signed by {signer}, a key that may not sign {json.dumps(want)} (src/trusted_keys.h)"
     return None
 
 
@@ -632,6 +635,14 @@ def verify_dev_live(urls, games_text):
         print(f"{DEV_PASSWORD_ENV} not set: the dev files were checked by sha256 on the server, not read back over https")
 
 
+def sign_checked(path, key):
+    """signing.sign_file, with a key that may not sign the file's name (#23) refused as a Refused."""
+    try:
+        return signing.sign_file(path, key)
+    except signing.SigningError as e:
+        raise Refused(str(e))
+
+
 def write_signed(path, text, key, keys):
     """Writes `text` to `path` and, with a key, `path`.sig beside it, checked against `keys`. Never leaves a .sig
     of older bytes behind."""
@@ -642,7 +653,7 @@ def write_signed(path, text, key, keys):
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     if key is not None:
-        signing.sign_file(path, key)
+        sign_checked(path, key)
         with open(path, "rb") as f, open(sig, "rb") as g:
             if not signing.verify_bytes(f.read(), g.read(), keys):
                 raise Refused(f"{sig} does not verify against {signing.TRUSTED_KEYS_H}")
@@ -812,7 +823,7 @@ def publish(a):
     print(f"wrote {a.out}: launcher {ver}, sha256 {doc['launcher']['sha256']}, "
           f"{doc['launcher']['size']} bytes, {len(doc['games'])} game(s)")
     if key is not None:
-        signing.sign_file(a.out, key)
+        sign_checked(a.out, key)
         with open(a.out, "rb") as f, open(sig_out, "rb") as g:
             if not signing.verify_bytes(f.read(), g.read(), keys):
                 raise Refused(f"{sig_out} does not verify against {signing.TRUSTED_KEYS_H}")
