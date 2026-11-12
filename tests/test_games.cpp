@@ -355,7 +355,34 @@ static void test_plain_file_name() {
     CHECK(!ffb::is_plain_file_name("a/b", &why) && why == "contains /");
 }
 
+// "signed_as" (#23): optional when parsing, so a games.json kept by an older
+// launcher still reads offline; the start flow requires it on a fetched file.
+static void test_signed_as() {
+    std::printf("signed_as\n");
+    {
+        const ffb::GamesJsonResult r = ffb::parse_games_json(kSpecExample);
+        CHECK(r.ok && r.value.signed_as.empty());
+    }
+    {
+        json j = example();
+        j["signed_as"] = "games.json";
+        const ffb::GamesJsonResult r = ffb::parse_games_json(j.dump());
+        CHECK(r.ok && r.value.signed_as == "games.json");
+    }
+    {
+        json j = example();
+        j["signed_as"] = "dev games.json";
+        CHECK(ffb::parse_games_json(j.dump()).value.signed_as == "dev games.json");
+    }
+    json j = example();
+    j["signed_as"] = 1;
+    CHECK(rejects(j, "signed_as"));
+    j["signed_as"] = nullptr;
+    CHECK(rejects(j, "signed_as"));
+}
+
 int main() {
+    test_signed_as();
     test_spec_example_parses();
     test_malformed();
     test_schema();

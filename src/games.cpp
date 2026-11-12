@@ -158,6 +158,12 @@ GamesJsonResult parse_games_json(const std::string& text) {
         if (!schema.is_number_unsigned() || schema.get<std::uint64_t>() != 1)
             invalid("schema", schema.dump() + " is not a format this launcher knows (only 1)");
 
+        const auto signed_as = root.find("signed_as");
+        if (signed_as != root.end()) {
+            if (!signed_as->is_string()) invalid("signed_as", "must be a string");
+            r.value.signed_as = signed_as->get<std::string>();
+        }
+
         r.value.launcher = read_launcher(root);
 
         const json& games = *require(root, "games", "games");

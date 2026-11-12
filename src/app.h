@@ -69,7 +69,7 @@ public:
 
     // The public keys games.json and the manifest must be signed with: the
     // compiled-in ones (src/trusted_keys.h). A test hands in its own.
-    virtual const std::vector<PublicKey>& trusted_keys() { return ffb::trusted_keys(); }
+    virtual const TrustedKeys& trusted_keys() { return ffb::trusted_keys(); }
 };
 
 struct AppInput {

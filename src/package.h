@@ -12,7 +12,9 @@
 // the Mewgenics Coop fork), with the spec's differences:
 //   1. Fetch the manifest and its signature (<manifest URL>.sig, signature.h);
 //      a missing or wrong signature rejects it before it is read. Then validate
-//      it: one broken rule rejects it whole and nothing is downloaded.
+//      it: one broken rule rejects it whole and nothing is downloaded. Its
+//      "signed_as" must name the game it was fetched for (#23), or it is
+//      rejected the same way.
 //   2. Hash every file already in the package folder; a file whose sha256
 //      matches is left alone. The manifest's version decides nothing.
 //   3. Download each file that differs to <name>.new, checking size and sha256 as
@@ -42,6 +44,10 @@ struct ManifestFile {
 };
 
 struct Manifest {
+    // What the manifest says it is (#23, signature.h): "" when it has no
+    // "signed_as". Optional here, so a manifest kept by an older launcher still
+    // reads offline; update_package requires it on a fetched one.
+    std::string               signed_as;
     std::string               version;   // shown to the player, never compared
     std::vector<ManifestFile> files;
 };
@@ -60,6 +66,10 @@ enum class PackageOutcome {
     Invalid,      // the manifest broke a rule; nothing was downloaded
     Unsigned,     // the manifest's signature is missing or wrong; it was not even
                   // read, and nothing was downloaded
+    WrongAddress, // the manifest is signed, but its "signed_as" names another
+                  // file than this game's manifest (#23); nothing was downloaded
+    WrongKey,     // the manifest names this game, but the key that signed it may
+                  // not sign that name (#23, trusted_keys.h); nothing was downloaded
     Failed,       // a required file failed to download, check or replace
 };
 
@@ -77,7 +87,10 @@ struct PackageResult {
 };
 
 // Brings `package_dir` (UTF-8; created when missing) up to date with the
-// manifest at `manifest_url`. `required_launcher`, when not empty, must be one
+// manifest at `manifest_url`, the manifest of game `game_id` (games[].id): its
+// "signed_as" must be manifest_signed_as(game_id), or it is WrongAddress and
+// nothing in `package_dir` changes (#23); the key that signed it must be one
+// that may sign that name, or it is WrongKey, the same way. `required_launcher`, when not empty, must be one
 // of the manifest's files and marked required (docs/SPEC.md, games[].launcher),
 // or the manifest is Invalid. The manifest must be signed by one of `keys`
 // (signature.h), or it is Unsigned and nothing in `package_dir` changes; a
@@ -85,8 +98,8 @@ struct PackageResult {
 // are printed to `log`, one line each; nullptr is silent. Nothing is written
 // outside `package_dir`.
 PackageResult update_package(const std::string& package_dir, const std::string& manifest_url,
-                             const std::string& required_launcher, Net& net,
+                             const std::string& game_id, const std::string& required_launcher, Net& net,
                              std::FILE* log = stdout,
-                             const std::vector<PublicKey>& keys = trusted_keys());
+                             const TrustedKeys& keys = trusted_keys());
 
 }  // namespace ffb

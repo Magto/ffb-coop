@@ -5,13 +5,15 @@
 //      Unreachable (a 404 included), unsigned, badly signed or invalid: the
 //      offline start, from the games.json kept in FFB Co-op\. A file that is not
 //      signed by a trusted key is never parsed, so it can never self-update.
+//      Signed but not this channel's games.json, or naming a launcher older than
+//      this one (an old file served again): the offline start too (#23).
 //   2. Self-update. A restart ends this process; a failure has already warned
 //      and the flow carries on.
 //   3. Find the game: none and more than one are error screens.
 //   4. Bring the package up to date (its manifest is signature-checked the
-//      same way), then keep games.json in FFB Co-op\ -- unless the manifest
-//      came unsigned. Any failure there is the offline start for the game just
-//      found.
+//      same way, and must name the game found, #23), then keep games.json in
+//      FFB Co-op\ -- unless the manifest came unsigned or for another game. Any
+//      failure there is the offline start for the game just found.
 //   5. Start FFB Co-op\<launcher> "<game exe>" <every argument>, working
 //      directory FFB Co-op\, and exit without waiting.
 //
@@ -175,6 +177,18 @@ std::string unsigned_file(const std::string& reason) {
     return "ffbcoop.com sent a file without a valid signature (" + reason + ")";
 }
 
+std::string wrong_address(const std::string& reason) {
+    return "ffbcoop.com sent a signed file meant for another address (" + reason + ")";
+}
+
+std::string wrong_key(const std::string& reason) {
+    return "ffbcoop.com sent a file signed by a key that may not sign it (" + reason + ")";
+}
+
+std::string version_text(const Version& v) {
+    return std::to_string(v.major) + "." + std::to_string(v.minor) + "." + std::to_string(v.patch);
+}
+
 }  // namespace
 
 int run_app(const AppInput& in, AppIo& io) {
@@ -196,13 +210,30 @@ int run_app(const AppInput& in, AppIo& io) {
     std::string sig;
     const int sig_status = get_body(io.net(), sig_url, &sig);
     if (sig_status == 0) return offline_start(in, io, kUnreachable);
+    PublicKey signer{};
     const std::string bad_sig =
         sig_status != 200 ? "games.json is not signed: " + sig_url + " said HTTP " + std::to_string(sig_status)
-                          : check_signature("games.json", body, sig, io.trusted_keys());
+                          : check_signature("games.json", body, sig, io.trusted_keys(), &signer);
     if (!bad_sig.empty()) return offline_start(in, io, unsigned_file(bad_sig));
     const GamesJsonResult parsed = parse_games_json(body);
     if (!parsed.ok) return offline_start(in, io, unreadable(parsed.error));
     const GamesJson& gj = parsed.value;
+    // Signed, but is it this channel's games.json (#23)? The dev one at the
+    // public address, or a manifest, is refused like an unsigned file.
+    const std::string misaddressed =
+        check_signed_as("games.json", gj.signed_as, games_json_signed_as(in.channel->name));
+    if (!misaddressed.empty()) return offline_start(in, io, wrong_address(misaddressed));
+    // ... and signed by a key that may sign games.json? A game's own key may sign
+    // only its own manifest (#23, trusted_keys.h).
+    const std::string key_refused = check_may_sign("games.json", gj.signed_as, signer, io.trusted_keys());
+    if (!key_refused.empty()) return offline_start(in, io, wrong_key(key_refused));
+    // A genuine games.json naming a launcher older than this one is an old file
+    // served again (#23): every publish names a launcher at least as new as the
+    // one before it. Nothing in it is acted on, so no package changes either.
+    Version listed;
+    if (parse_version(gj.launcher.version, &listed) && compare_version(listed, in.running) < 0)
+        return offline_start(in, io, "ffbcoop.com sent an older games.json (launcher " + gj.launcher.version +
+                                         ", this is " + version_text(in.running) + ")");
 
     // --- 2. self-update ---
     LauncherBlock block;
@@ -220,11 +251,13 @@ int run_app(const AppInput& in, AppIo& io) {
 
     // --- 4. update the package, keep games.json ---
     const std::string dir = package_dir(in);
-    const PackageResult pkg = update_package(dir, game.manifest, game.launcher, io.net(),
+    const PackageResult pkg = update_package(dir, game.manifest, game.id, game.launcher, io.net(),
                                              io.package_log(), io.trusted_keys());
-    // Kept for offline starts -- except after an unsigned manifest, which
-    // changes nothing in the game folder (#21).
-    if (pkg.outcome != PackageOutcome::Unsigned) {
+    // Kept for offline starts -- except after an unsigned manifest (#21), or one
+    // for another game or by a key that may not sign it (#23): those change
+    // nothing in the game folder.
+    if (pkg.outcome != PackageOutcome::Unsigned && pkg.outcome != PackageOutcome::WrongAddress &&
+        pkg.outcome != PackageOutcome::WrongKey) {
         std::error_code ec;
         fs::create_directories(fs::u8path(dir), ec);
         if (!write_text(join_path(dir, kCachedGamesJson), body))
@@ -243,6 +276,8 @@ int run_app(const AppInput& in, AppIo& io) {
     case PackageOutcome::Unreachable: return offline_start_game(in, io, kUnreachable, game);
     case PackageOutcome::Invalid:     return offline_start_game(in, io, unreadable(pkg.reason), game);
     case PackageOutcome::Unsigned:    return offline_start_game(in, io, unsigned_file(pkg.reason), game);
+    case PackageOutcome::WrongAddress: return offline_start_game(in, io, wrong_address(pkg.reason), game);
+    case PackageOutcome::WrongKey:     return offline_start_game(in, io, wrong_key(pkg.reason), game);
     // Failed: the manifest just fetched is valid and names every required file.
     case PackageOutcome::Failed:
         return offline_start_game(in, io, "Could not update FFB Co-op (" + pkg.reason + ")", game,
