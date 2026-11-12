@@ -45,8 +45,9 @@ the same version rules against the live dev games.json (read over ssh: publishin
 dev version MAJOR.0.D with D >= 1, which no release exe ever is; --release is refused with --dev. The games list is
 site/dev-games.json.in. --package writes a manifest for every file in DIR (all required except --optional ones),
 signs it and uploads it to coopmods.com/dev/<GAME_ID>/; that game's manifest in dev-games.json.in must be that URL.
-The dev games.json says "signed_as": "dev games.json", a dev manifest "<GAME_ID> manifest" (#23). The live-manifest
-check of step 4 is the public publish's only: a dev manifest is behind the dev password.
+The dev games.json says "signed_as": "dev games.json", a dev manifest "<GAME_ID> manifest" (#23). Step 4's live-manifest
+check runs on every listed manifest this publish does not write itself: a /dev/ one read with FFB_DEV_PASSWORD, and
+without it only named in a warning.
 Before uploading it checks that ffbcoop.com/dev/games.json answers 401 without a login, so nothing goes up while
 the gate is not deployed; afterwards, that every published URL still does.
 
@@ -472,16 +473,18 @@ def manifest_problem(game, data, sig, keys):
     return None
 
 
-def check_manifest_names(doc, keys, dry_run):
+def check_manifest_names(doc, keys, dry_run, read=None):
     """Refuse before uploading anything when a game's live manifest is one a launcher from #23 on would refuse: not
     signed by a trusted key, or not saying "signed_as": "<id> manifest". Each game's own publish writes its manifest
     (Mewgenics': mewgenics-coop tools/publish_site.py), so it must carry the name before a launcher that checks it
-    goes out (docs/SPEC.md, "Signatures"). A --dry-run only warns."""
+    goes out (docs/SPEC.md, "Signatures"). A --dry-run only warns. `read(url)` -> the bytes, None on a 404, raises
+    on anything else; default fetch (no login)."""
+    read = read or fetch
     problems = []
     for g in doc["games"]:
         url = g["manifest"]
         try:
-            why = manifest_problem(g, fetch(url), fetch(signing.signature_url(url)), keys)
+            why = manifest_problem(g, read(url), read(signing.signature_url(url)), keys)
         except Exception as e:   # noqa: BLE001 -- any network failure
             why = f"could not be read ({e})"
         if why:
@@ -494,6 +497,34 @@ def check_manifest_names(doc, keys, dry_run):
         print(f"warning: {msg}\n  a real publish refuses")
         return
     raise Refused(msg)
+
+
+def check_dev_manifest_names(doc, keys, published, dry_run):
+    """check_manifest_names for a dev publish (#23). A manifest published in this run is written with its name and is
+    not read. Every other listed manifest is read live: a public one without a login, one under /dev/ with the dev
+    password from FFB_DEV_PASSWORD. Without the password a /dev/ manifest cannot be read, so it is named in a warning
+    and not checked."""
+    password = os.environ.get(DEV_PASSWORD_ENV, "").strip()
+    login = f"{DEV_LOGIN_USER}:{password}" if password else None
+    games, unread = [], []
+    for g in doc["games"]:
+        if g["id"] in published:
+            continue
+        (unread if under_dev(g["manifest"]) and not login else games).append(g)
+    if unread:
+        print(f"warning: {DEV_PASSWORD_ENV} not set: not checked that these dev manifests say \"signed_as\" -- a dev "
+              "exe from #23 on refuses them without it: " + ", ".join(g["manifest"] for g in unread))
+
+    def read(url):
+        code, body = http_status(url, login=login if under_dev(url) else None)
+        if code == 404:
+            return None
+        if code != 200:
+            raise Refused(f"HTTP {code}")
+        return body
+
+    if games:
+        check_manifest_names({"games": games}, keys, dry_run, read=read)
 
 
 def signing_key(dry_run):
@@ -701,6 +732,7 @@ def publish_dev(a):
                               f"--package {g['id']} <folder>, or point it at the public manifest")
     key = signing_key(a.dry_run)
     keys = signing.trusted_keys(REPO)
+    check_dev_manifest_names(doc, keys, published, a.dry_run)
 
     out_dir = a.out or DEV_OUT_DIR
     games_text = dumps(doc)

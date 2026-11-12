@@ -307,9 +307,10 @@ The order:
 
 A second game is listed in games.json only after step 2, with its manifest carrying `"<id> manifest"`
 from its first publish. The dev channel follows the same order: `publish.py --dev` writes
-`"dev games.json"` and `"<id> manifest"` into what it publishes, but cannot read the Mewgenics dev manifest
-without the dev password, so step 1 for the dev manifest is checked by hand (a dev exe from #23 on
-refuses it with the warning above until it carries the name).
+`"dev games.json"` and `"<id> manifest"` into what it publishes, and checks every listed manifest it does
+not publish itself the same way, reading a `/dev/` one with the dev password from `FFB_DEV_PASSWORD`.
+Without the password it names those manifests in a warning and does not check them (a dev exe from #23 on
+refuses one without its name, with the warning above).
 
 ### Not covered
 

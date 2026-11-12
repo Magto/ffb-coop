@@ -953,6 +953,68 @@ class Dev(unittest.TestCase):
         self.server.files[DEV_REMOTE + "/mewgenics/manifest.json"] = b"{}"   # published earlier
         self.assertEqual(self.main(package=False), 0)
 
+    def serve_dev_manifest(self, manifest):
+        """FFB_DEV_PASSWORD set, and the live dev manifest (published earlier, not in this run) answered with its .sig
+        to the dev login only, as the gate does (#23). -> the http_status patch and the URLs asked with the login."""
+        os.environ[publish.DEV_PASSWORD_ENV] = "pw"
+        data = json.dumps(manifest).encode()
+        pages = {DEV_MANIFEST_URL: data,
+                 DEV_MANIFEST_URL + ".sig": signing.sign_bytes(data, signing.load_trusted_key(REPO)).encode()}
+        self.server.files[DEV_REMOTE + "/mewgenics/manifest.json"] = data
+        logged = []
+
+        def answer(url, login=None, timeout=20):
+            self.server.https.append(url)
+            if not login:
+                return self.server.http_status(url)
+            self.assertEqual(login, "dev:pw")
+            logged.append(url)
+            if url in pages:
+                return 200, pages[url]
+            if url in (DEV_GAMES_URL, DEV_OLD_GAMES_URL):
+                return 200, self.server.files[DEV_REMOTE + "/games.json"]
+            raise AssertionError(f"unexpected login request {url}")
+        return mock.patch.object(publish, "http_status", side_effect=answer), logged
+
+    def test_live_dev_manifest_with_its_name_passes(self):
+        patch, logged = self.serve_dev_manifest({"signed_as": "mewgenics manifest", "version": "1", "files": []})
+        with patch:
+            self.assertEqual(self.main(package=False), 0)
+        self.assertIn(DEV_MANIFEST_URL + ".sig", logged)   # read with the dev password, and checked
+
+    def test_live_dev_manifest_without_its_name_refused(self):
+        # #23 review, finding 3: a dev exe from #23 on would refuse it, so no dev launcher goes out over it.
+        for manifest in ({"version": "1", "files": []}, {"signed_as": "tab manifest", "version": "1", "files": []}):
+            with self.subTest(manifest=manifest):
+                self.server.cmds.clear()
+                patch, _ = self.serve_dev_manifest(manifest)
+                err = io.StringIO()
+                with patch, contextlib.redirect_stderr(err):
+                    self.assertEqual(self.main(package=False), 1)
+                self.assertFalse([c for c in self.server.cmds if c[0] == "scp"])
+                self.assertIn("mewgenics: " + DEV_MANIFEST_URL, err.getvalue())
+
+    def test_live_dev_manifest_without_its_name_only_warns_on_a_dry_run(self):
+        patch, _ = self.serve_dev_manifest({"version": "1", "files": []})
+        out = io.StringIO()
+        with patch, contextlib.redirect_stdout(out):
+            self.assertEqual(self.main("--dry-run", package=False), 0)
+        self.assertIn('mewgenics: ' + DEV_MANIFEST_URL + ' says "signed_as": null', out.getvalue())
+
+    def test_live_dev_manifest_unchecked_without_the_password_warns(self):
+        self.server.files[DEV_REMOTE + "/mewgenics/manifest.json"] = b"{}"   # published earlier, no name
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.main(package=False), 0)
+        self.assertIn(f"{publish.DEV_PASSWORD_ENV} not set: not checked", out.getvalue())
+        self.assertIn(DEV_MANIFEST_URL, out.getvalue())
+
+    def test_dev_manifest_published_in_this_run_is_not_read(self):
+        patch, logged = self.serve_dev_manifest({"version": "1", "files": []})   # the old one, without a name
+        with patch:
+            self.assertEqual(self.main(), 0)   # --package mewgenics writes the new one, with its name
+        self.assertNotIn(DEV_MANIFEST_URL, logged)
+
     def test_no_exe_keeps_the_live_launcher(self):
         live = self.live_dev("1.0.3")
         self.assertEqual(self.main("--no-exe", exe=False), 0)
