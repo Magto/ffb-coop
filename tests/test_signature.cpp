@@ -70,7 +70,7 @@ void four_cases(const char* what, const std::string& file) {
     CHECK(!ffb::check_signature(what, file, good, {}).empty());
     // The wrong-key signature passes once its key is trusted: a second key in
     // the list is how a rotation works (docs/SPEC.md).
-    const std::vector<ffb::PublicKey> both{key(kTestPublicHex), key(kOtherPublicHex)};
+    const ffb::TrustedKeys both{{key(kTestPublicHex), "*"}, {key(kOtherPublicHex), "*"}};
     CHECK(ffb::check_signature(what, file, other, both).empty());
     CHECK(ffb::check_signature(what, file, good, both).empty());
 }
@@ -123,7 +123,8 @@ int main() {
     {
         const auto& keys = ffb::trusted_keys();
         CHECK(keys.size() == 1);
-        CHECK(keys.size() == 1 && to_hex(keys[0].data(), 32) == kCoopmodsKey);
+        CHECK(keys.size() == 1 && to_hex(keys[0].key.data(), 32) == kCoopmodsKey);
+        CHECK(keys.size() == 1 && keys[0].may_sign == "*");   // Martin's key signs every name (#23)
         // tools/signing.py (Python `cryptography`) signed this fixed sentence with the
         // coopmods private key on 2026-10-01: the publish side and the launcher side
         // agree on the format and the key. Not JSON, so it can never pass as a file.
@@ -163,6 +164,32 @@ int main() {
         // Exact: no case folding, no trimming.
         CHECK(!ffb::check_signed_as("games.json", "Games.json", "games.json").empty());
         CHECK(!ffb::check_signed_as("games.json", "games.json ", "games.json").empty());
+    }
+
+    std::puts("which names a key may sign (#23): \"*\" every name, a game's key its own manifest only");
+    {
+        const auto& keys = game_keys();   // TEST 1: "*"; TEST 2: "other manifest"
+        const ffb::PublicKey all = key(kTestPublicHex), game = key(kOtherPublicHex);
+        for (const char* name : {"games.json", "dev games.json", "mewgenics manifest", "other manifest"})
+            CHECK(ffb::check_may_sign("x", name, all, keys).empty());
+        CHECK(ffb::check_may_sign("the manifest", "other manifest", game, keys).empty());
+        CHECK(ffb::check_may_sign("games.json", "games.json", game, keys) ==
+              "games.json is signed as \"games.json\" by a key that may sign only \"other manifest\"");
+        CHECK(!ffb::check_may_sign("games.json", "dev games.json", game, keys).empty());
+        CHECK(!ffb::check_may_sign("the manifest", "mewgenics manifest", game, keys).empty());
+        CHECK(!ffb::check_may_sign("the manifest", "", game, keys).empty());
+        // Two rows for one key: either name.
+        const ffb::TrustedKeys two{{game, "other manifest"}, {game, "tab manifest"}};
+        CHECK(ffb::check_may_sign("the manifest", "tab manifest", game, two).empty());
+        CHECK(ffb::check_may_sign("the manifest", "games.json", game, two) ==
+              "the manifest is signed as \"games.json\" by a key that may sign only \"other manifest\", \"tab manifest\"");
+        // A key not in the list at all may sign nothing.
+        CHECK(!ffb::check_may_sign("games.json", "games.json", game, test_keys()).empty());
+        // check_signature names the key that signed.
+        ffb::PublicKey signer{};
+        CHECK(ffb::check_signature("the manifest", kManifest, sign(kManifest, kOtherSeedHex, kOtherPublicHex), keys,
+                                   &signer).empty());
+        CHECK(signer == game);
     }
 
     return ffb_test_result();

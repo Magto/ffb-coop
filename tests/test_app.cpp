@@ -111,7 +111,10 @@ struct FakeIo : ffb::AppIo {
     void out(const std::string& l) override { outs.push_back(l); }
     void err(const std::string& l) override { errs.push_back(l); }
     std::FILE* package_log() override { return nullptr; }
-    const std::vector<ffb::PublicKey>& trusted_keys() override { return ffb_test::test_keys(); }
+    // The keys this launcher trusts: the test key for every name, unless a test
+    // hands in its own (#23).
+    const ffb::TrustedKeys* trusted = nullptr;
+    const ffb::TrustedKeys& trusted_keys() override { return trusted ? *trusted : ffb_test::test_keys(); }
 };
 
 struct TempFolder {
@@ -665,7 +668,7 @@ void test_games_json_unsigned() {
 void test_games_json_default_keys() {
     std::printf("the real exe's keys: a games.json signed with the test key is refused\n");
     struct RealKeysIo : FakeIo {
-        const std::vector<ffb::PublicKey>& trusted_keys() override { return ffb::AppIo::trusted_keys(); }
+        const ffb::TrustedKeys& trusted_keys() override { return ffb::AppIo::trusted_keys(); }
     };
     TempFolder t;
     write(t.path / "Mewgenics.exe", "game");
@@ -931,6 +934,80 @@ void test_games_json_replay() {
     CHECK(ffb::run_app(newer_input(t3), io3) == 0);
     CHECK(io3.errs.empty());
     CHECK(read(t3.pkg() / kDll) == kDllBytes);
+}
+
+void test_wrong_key() {
+    // #23 review, finding 1: a game's own key (TEST 2, which may sign only
+    // "other manifest") signs a file it may not. The signature is valid and the
+    // name is the one asked for; only the key's allowed names refuse it.
+    const std::string pre = "ffbcoop.com sent a file signed by a key that may not sign it (";
+    auto by_game_key = [](const std::string& body) { return ffb_test::sign(body, ffb_test::kOtherSeedHex, ffb_test::kOtherPublicHex); };
+
+    std::printf("a game's key signs games.json: warning, no self-update, the installed version starts\n");
+    {
+        const std::string newer = games_json("0.2.0", ffb::sha256_hex("new exe"), 7);
+        TempFolder t;
+        write(t.path / "Mewgenics.exe", "game");
+        install(t);
+        const auto before = snapshot(t.path);
+        FakeIo io;
+        io.trusted = &ffb_test::game_keys();
+        serve_all(io);
+        io.self_.download_ok = true;
+        io.self_.served      = "new exe";
+        io.net_.pages[ffb::kGamesJsonUrl] = {200, newer};
+        io.net_.pages[kGamesSigUrl]       = {200, by_game_key(newer)};
+        CHECK(ffb::run_app(input(t), io) == 0);
+        CHECK(io.errs.size() == 1);
+        if (io.errs.size() == 1)
+            CHECK(io.errs[0] == pre + "games.json is signed as \"games.json\" by a key that may sign only \"other "
+                                      "manifest\"" + kInstalledPost);
+        CHECK(io.self_.downloads == 0);
+        CHECK(io.self_.restarts == 0);
+        CHECK(io.starts.size() == 1);
+        CHECK(snapshot(t.path) == before);
+    }
+
+    std::printf("a game's key signs another game's manifest, at that game's address: warning, nothing changes\n");
+    {
+        const std::string forged = with(manifest(), ffb::sha256_hex(kDllBytes), ffb::sha256_hex("evil dll"));
+        TempFolder t;
+        write(t.path / "Mewgenics.exe", "game");
+        install(t);
+        // The kept games.json differs from the one served, so a re-save would show.
+        write(t.pkg() / "games.json", games_json("0.0.9"));
+        const auto before = snapshot(t.path);
+        FakeIo io;
+        io.trusted = &ffb_test::game_keys();
+        serve_all(io);   // games.json signed with TEST 1, which may sign it
+        io.net_.pages[kManifestUrl]    = {200, forged};   // says "mewgenics manifest"
+        io.net_.pages[kManifestSigUrl] = {200, by_game_key(forged)};
+        io.net_.pages[kBase + kDll]    = {200, "evil dll"};
+        CHECK(ffb::run_app(input(t), io) == 0);
+        CHECK(io.errs.size() == 1);
+        if (io.errs.size() == 1)
+            CHECK(io.errs[0] == pre + "the manifest is signed as \"mewgenics manifest\" by a key that may sign only "
+                                      "\"other manifest\"" + kInstalledPost);
+        CHECK(io.starts.size() == 1);
+        CHECK(snapshot(t.path) == before);
+        CHECK(!was_asked(io.net_.asked, kBase + kDll));
+    }
+
+    std::printf("control: a game's key signs its own game's manifest, which installs\n");
+    {
+        TempFolder t;
+        write(t.path / "Other.exe", "game");
+        FakeIo io;
+        io.trusted = &ffb_test::game_keys();
+        io.net_.pages[ffb::kGamesJsonUrl]     = {200, two_games_json()};
+        io.net_.pages[kOtherManifestUrl]      = {200, other_manifest()};
+        io.net_.pages[kOtherManifestUrl + ".sig"] = {200, by_game_key(other_manifest())};
+        io.net_.pages[kOtherBase + kLoader]   = {200, kLoaderBytes};
+        io.net_.pages[kOtherBase + kDll]      = {200, kOtherDllBytes};
+        CHECK(ffb::run_app(input(t), io) == 0);
+        CHECK(io.errs.empty());
+        CHECK(read(t.pkg() / kDll) == kOtherDllBytes);
+    }
 }
 
 // --- the dev channel (#26) ------------------------------------------------------
@@ -1214,6 +1291,7 @@ int main() {
     test_manifest_wrong_address();
     test_games_json_wrong_address();
     test_games_json_replay();
+    test_wrong_key();
     test_dev_beside_public();
     test_public_never_dev();
     test_dev_offline();

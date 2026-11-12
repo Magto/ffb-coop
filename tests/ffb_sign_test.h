@@ -44,9 +44,17 @@ inline ffb::PublicKey key(const char* hex) {
     return k;
 }
 
-// The keys a test launcher trusts: TEST 1 only.
-inline const std::vector<ffb::PublicKey>& test_keys() {
-    static const std::vector<ffb::PublicKey> keys{key(kTestPublicHex)};
+// The keys a test launcher trusts: TEST 1 only, for every name.
+inline const ffb::TrustedKeys& test_keys() {
+    static const ffb::TrustedKeys keys{{key(kTestPublicHex), "*"}};
+    return keys;
+}
+
+// TEST 1 for every name, and TEST 2 as a game's own key (#23): it may sign
+// "other manifest" and nothing else, as trusted_keys.h would list a second
+// game's key.
+inline const ffb::TrustedKeys& game_keys() {
+    static const ffb::TrustedKeys keys{{key(kTestPublicHex), "*"}, {key(kOtherPublicHex), "other manifest"}};
     return keys;
 }
 

@@ -26,8 +26,16 @@ namespace ffb {
 using PublicKey = std::array<unsigned char, 32>;
 using Signature = std::array<unsigned char, 64>;
 
-// The keys in src/trusted_keys.h: the ones every real start checks against.
-const std::vector<PublicKey>& trusted_keys();
+// One row of src/trusted_keys.h: a key, and one "signed_as" name it may sign,
+// or "*" for every name (#23). A key with two names has two rows.
+struct TrustedKey {
+    PublicKey   key;
+    std::string may_sign;
+};
+using TrustedKeys = std::vector<TrustedKey>;
+
+// The rows in src/trusted_keys.h: the ones every real start checks against.
+const TrustedKeys& trusted_keys();
 
 // "https://h/games.json" -> "https://h/games.json.sig". A query or fragment is
 // dropped first, so the .sig always names the file's own path.
@@ -42,9 +50,11 @@ bool ed25519_verify(const Signature& sig, const std::string& data, const PublicK
 
 // The whole check: `sig_text` (the .sig file) parses and signs exactly `data`
 // under one of `keys`. -> empty when it does, else why not (one line, naming
-// `what`, e.g. "games.json: the signature does not match").
+// `what`, e.g. "games.json: the signature does not match"). On success the key
+// that signed is put in `signer` when it is not null.
 std::string check_signature(const std::string& what, const std::string& data,
-                            const std::string& sig_text, const std::vector<PublicKey>& keys);
+                            const std::string& sig_text, const TrustedKeys& keys,
+                            PublicKey* signer = nullptr);
 
 // 64 hex digits -> a key. False on anything else.
 bool parse_public_key(const std::string& hex, PublicKey* out);
@@ -73,5 +83,13 @@ std::string manifest_signed_as(const std::string& game_id);
 // manifest", not "b manifest"`).
 std::string check_signed_as(const std::string& what, const std::string& signed_as,
                             const std::string& want);
+
+// May `signer` sign a file named `signed_as`? Yes when one of its rows in `keys`
+// says "*" or exactly that name. -> empty when it may, else why not (one line,
+// naming `what`, e.g. `the manifest is signed as "mewgenics manifest" by a key
+// that may sign only "tab manifest"`). A game's key signs its own manifest and
+// nothing else, so it can never stand in for another game or for games.json.
+std::string check_may_sign(const std::string& what, const std::string& signed_as,
+                           const PublicKey& signer, const TrustedKeys& keys);
 
 }  // namespace ffb

@@ -41,14 +41,17 @@ bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; 
 
 }  // namespace
 
-const std::vector<PublicKey>& trusted_keys() {
-    static const std::vector<PublicKey> keys = [] {
-        std::vector<PublicKey> v;
-        for (const char* hex : kTrustedKeyHex) {
-            PublicKey k;
+const TrustedKeys& trusted_keys() {
+    static const TrustedKeys keys = [] {
+        TrustedKeys v;
+        for (const TrustedKeyRow& row : kTrustedKeys) {
+            TrustedKey k;
             // A malformed entry is a build-time typo; it trusts nothing rather than
             // something else.
-            if (parse_public_key(hex, &k)) v.push_back(k);
+            if (parse_public_key(row.hex, &k.key) && row.may_sign && *row.may_sign) {
+                k.may_sign = row.may_sign;
+                v.push_back(k);
+            }
         }
         return v;
     }();
@@ -85,12 +88,15 @@ bool ed25519_verify(const Signature& sig, const std::string& data, const PublicK
 }
 
 std::string check_signature(const std::string& what, const std::string& data,
-                            const std::string& sig_text, const std::vector<PublicKey>& keys) {
+                            const std::string& sig_text, const TrustedKeys& keys, PublicKey* signer) {
     Signature sig;
     std::string why;
     if (!parse_signature(sig_text, &sig, &why)) return what + ": " + why;
     for (const auto& k : keys)
-        if (ed25519_verify(sig, data, k)) return std::string();
+        if (ed25519_verify(sig, data, k.key)) {
+            if (signer) *signer = k.key;
+            return std::string();
+        }
     return what + ": the signature does not match";
 }
 
@@ -105,6 +111,18 @@ std::string check_signed_as(const std::string& what, const std::string& signed_a
     if (signed_as == want) return std::string();
     if (signed_as.empty()) return what + " does not say which file it is (no \"signed_as\")";
     return what + " is signed as \"" + signed_as + "\", not \"" + want + "\"";
+}
+
+std::string check_may_sign(const std::string& what, const std::string& signed_as,
+                           const PublicKey& signer, const TrustedKeys& keys) {
+    std::string allowed;
+    for (const auto& k : keys) {
+        if (k.key != signer) continue;
+        if (k.may_sign == "*" || k.may_sign == signed_as) return std::string();
+        allowed += (allowed.empty() ? "\"" : ", \"") + k.may_sign + "\"";
+    }
+    return what + " is signed as \"" + signed_as + "\" by a key that may sign only " +
+           (allowed.empty() ? std::string("nothing") : allowed);
 }
 
 }  // namespace ffb

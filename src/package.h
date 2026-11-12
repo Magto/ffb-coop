@@ -68,6 +68,8 @@ enum class PackageOutcome {
                   // read, and nothing was downloaded
     WrongAddress, // the manifest is signed, but its "signed_as" names another
                   // file than this game's manifest (#23); nothing was downloaded
+    WrongKey,     // the manifest names this game, but the key that signed it may
+                  // not sign that name (#23, trusted_keys.h); nothing was downloaded
     Failed,       // a required file failed to download, check or replace
 };
 
@@ -87,7 +89,8 @@ struct PackageResult {
 // Brings `package_dir` (UTF-8; created when missing) up to date with the
 // manifest at `manifest_url`, the manifest of game `game_id` (games[].id): its
 // "signed_as" must be manifest_signed_as(game_id), or it is WrongAddress and
-// nothing in `package_dir` changes (#23). `required_launcher`, when not empty, must be one
+// nothing in `package_dir` changes (#23); the key that signed it must be one
+// that may sign that name, or it is WrongKey, the same way. `required_launcher`, when not empty, must be one
 // of the manifest's files and marked required (docs/SPEC.md, games[].launcher),
 // or the manifest is Invalid. The manifest must be signed by one of `keys`
 // (signature.h), or it is Unsigned and nothing in `package_dir` changes; a
@@ -97,6 +100,6 @@ struct PackageResult {
 PackageResult update_package(const std::string& package_dir, const std::string& manifest_url,
                              const std::string& game_id, const std::string& required_launcher, Net& net,
                              std::FILE* log = stdout,
-                             const std::vector<PublicKey>& keys = trusted_keys());
+                             const TrustedKeys& keys = trusted_keys());
 
 }  // namespace ffb

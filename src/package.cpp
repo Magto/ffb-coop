@@ -209,7 +209,7 @@ std::string sibling_url(const std::string& manifest_url, const std::string& name
 PackageResult update_package(const std::string& package_dir, const std::string& manifest_url,
                              const std::string& game_id, const std::string& required_launcher, Net& net,
                              std::FILE* log,
-                             const std::vector<PublicKey>& keys) {
+                             const TrustedKeys& keys) {
     PackageResult res;
 
     // --- 1. the manifest ---
@@ -240,7 +240,8 @@ PackageResult update_package(const std::string& package_dir, const std::string& 
         res.reason  = "the manifest is not signed: " + sig_url + " said HTTP " + std::to_string(sig_status);
         return res;
     }
-    res.reason = check_signature("the manifest", body, sig, keys);
+    PublicKey signer{};
+    res.reason = check_signature("the manifest", body, sig, keys, &signer);
     if (!res.reason.empty()) {
         res.outcome = PackageOutcome::Unsigned;
         return res;
@@ -255,6 +256,13 @@ PackageResult update_package(const std::string& package_dir, const std::string& 
     res.reason = check_signed_as("the manifest", m.signed_as, manifest_signed_as(game_id));
     if (!res.reason.empty()) {
         res.outcome = PackageOutcome::WrongAddress;
+        return res;
+    }
+    // ... and signed by a key that may sign this game's manifest? A game's own
+    // key may sign only its own manifest (#23, trusted_keys.h).
+    res.reason = check_may_sign("the manifest", m.signed_as, signer, keys);
+    if (!res.reason.empty()) {
+        res.outcome = PackageOutcome::WrongKey;
         return res;
     }
     res.version       = m.version;

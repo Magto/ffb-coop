@@ -518,5 +518,37 @@ int main() {
                                   ffb_test::test_keys()).outcome == ffb::PackageOutcome::Current);
     }
 
+    {
+        // #23 review, finding 1: TEST 2 is a game's own key, which may sign only
+        // "other manifest". Its valid signature on mewgenics' manifest is refused.
+        std::puts("a game's key signs another game's manifest: refused, nothing downloaded, nothing changes (#23)");
+        auto by_game_key = [](const std::string& body) {
+            return ffb_test::sign(body, ffb_test::kOtherSeedHex, ffb_test::kOtherPublicHex);
+        };
+        Sandbox sb("wrong-key");
+        fs::create_directories(sb.pkg);
+        write_file(sb.pkg / kLoader.name, "loader v75");
+        write_file(sb.pkg / kDll.name, "dll v75");
+        const auto before = snapshot(sb.root);
+        FakeNet net = serving({kLoader, kDll});   // says "mewgenics manifest"
+        net.pages[kSigUrl] = {200, by_game_key(net.pages[kManifestUrl].body)};
+        const ffb::PackageResult r =
+            ffb::update_package(sb.dir(), kManifestUrl, kGame, "mewcoop_loader.exe", net, nullptr, ffb_test::game_keys());
+        CHECK(r.outcome == ffb::PackageOutcome::WrongKey);
+        CHECK(r.reason == "the manifest is signed as \"mewgenics manifest\" by a key that may sign only \"other manifest\"");
+        CHECK(net.files_asked() == 0);
+        CHECK(r.manifest_text.empty());
+        CHECK(snapshot(sb.root) == before);
+
+        std::puts("  control: the same key on its own game's manifest installs");
+        Sandbox own("own-key");
+        FakeNet net2 = serving({kLoader, kDll});
+        std::string& text = net2.pages[kManifestUrl].body;
+        text.replace(text.find("mewgenics manifest"), std::string("mewgenics manifest").size(), "other manifest");
+        net2.pages[kSigUrl] = {200, by_game_key(text)};
+        CHECK(ffb::update_package(own.dir(), kManifestUrl, "other", "mewcoop_loader.exe", net2, nullptr,
+                                  ffb_test::game_keys()).outcome == ffb::PackageOutcome::Current);
+    }
+
     return ffb_test_result();
 }
