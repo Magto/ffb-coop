@@ -13,7 +13,7 @@
       "id": "theyarebillions",
       "name": "They Are Billions",
       "exe": "TheyAreBillions.exe",
-      "steam_appid": 0,
+      "steam_appid": 644930,
       "manifest": "https://tab.ffbcoop.com/update/dev/manifest.json",
       "launcher": "FfbTab.Launcher.exe"
     }

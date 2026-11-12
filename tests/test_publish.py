@@ -896,6 +896,8 @@ class Dev(unittest.TestCase):
         launcher = {"version": "1.0.1", "url": DEV_LAUNCHER_URL, "sha256": "0" * 64, "size": 1}
         doc = publish.build_games_json(load(publish.DEV_GAMES_IN), launcher=launcher)
         self.assertEqual([g["manifest"] for g in doc["games"]], [DEV_MANIFEST_URL, TAB_DEV_MANIFEST_URL])
+        tab = [g for g in doc["games"] if g["id"] == "theyarebillions"][0]
+        self.assertEqual(tab["steam_appid"], 644930)   # Martin on #44: "b — 644930 now"
 
     def test_full_publish_writes_only_under_dev(self):
         self.assertEqual(self.main(), 0)
